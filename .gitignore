@@ -12,3 +12,6 @@ dist-ssr/
 .env
 .env.*
 secrets.txt
+RELEASING.md
+backedprompt.txt
+tax-statements.sqlite
