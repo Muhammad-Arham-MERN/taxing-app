@@ -1,0 +1,70 @@
+# بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيمِ
+#
+# Release: build the Windows installer, sign it with the updater private key,
+# and publish the GitHub Release that installed copies poll for updates.
+#
+# Only a tag push triggers this. The version in the tag must match `version` in
+# tax-statements-analysis/src-tauri/tauri.conf.json: that is the version written
+# into latest.json, and the number an installed copy compares itself against
+# when deciding whether an update exists.
+#
+# The release is published at once (not left as a draft) because the updater
+# endpoint is .../releases/latest/download/latest.json, and GitHub's "latest"
+# skips both drafts and prereleases.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'app-v*'
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: tax-statements-analysis/package-lock.json
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'tax-statements-analysis/src-tauri -> target'
+
+      - name: install frontend dependencies
+        working-directory: tax-statements-analysis
+        run: npm ci
+
+      # tauri-action finds the release for the pushed tag (creating it if this
+      # is the first time) and uploads the installers, their .sig files, and
+      # latest.json. updaterJsonPreferNsis points latest.json at the NSIS
+      # setup.exe rather than the .msi, so that the `passive` installMode in
+      # tauri.conf.json actually applies — the MSI path ignores it.
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: tax-statements-analysis
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Taxing App ${{ github.ref_name }}'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: false
+          prerelease: false
+          updaterJsonPreferNsis: true
+
+# وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

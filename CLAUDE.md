@@ -1,4 +1,4 @@
-# Claude Code Rules
+﻿# Claude Code Rules
 
 This file is generated during init for the selected agent.
 
@@ -195,6 +195,25 @@ If ALL true, suggest:
    Document reasoning and tradeoffs? Run `/sp.adr [decision-title]`
 
 Wait for consent; never auto-create ADRs. Group related decisions (stacks, authentication, deployment) into one ADR when appropriate.
+
+## Active Technologies
+
+- Rust 1.77.2+ (edition 2021) with Tauri v2 — backend — feature `002-statements-persistence`
+- SQLite via `rusqlite` (`bundled`, statically linked): one self-contained store file at a practitioner-chosen location; rollback journal, not WAL, so the `.db` alone is a copyable backup — feature `002-statements-persistence`
+- Attachments stored as BLOBs in a separate `attachments` table (blob last, never read by list queries) — feature `002-statements-persistence`
+- `tauri-plugin-dialog`; `tauri-plugin-single-instance` (registered first in the builder); `tauri-plugin-opener` (called from Rust, so no `opener:allow-open-path` capability) — feature `002-statements-persistence`
+- `windows-sys` for drive-type and cloud-sync-root classification — feature `002-statements-persistence`
+- Chosen location remembered in `settings.json` under `app.path().app_config_dir()` — feature `002-statements-persistence`
+
+**Build prerequisite (Module 2)**: `rusqlite`'s `bundled` feature compiles SQLite from C source, so the build machine needs the MSVC build tools (C++). The shipped application needs nothing installed.
+
+- TypeScript 5.x + React 19 + Vite — feature `001-statements-entry-view`
+- Tauri v2 desktop shell (Rust edition 2021) — feature `001-statements-entry-view`
+- Tailwind CSS v4 + shadcn/ui — feature `001-statements-entry-view`
+- react-hook-form + zod; date-fns + react-day-picker; TanStack Table — feature `001-statements-entry-view`
+- In-memory repository seam (`src/data/in-memory.ts`) — retained as the frontend test fixture only; the running application uses `src/data/tauri.ts`
+
+**Last updated**: 2026-09-14
 
 ## Basic Project Structure
 

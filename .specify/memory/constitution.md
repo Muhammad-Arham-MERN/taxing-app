@@ -1,55 +1,65 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Income & Expenditure Statement Analysis Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Code Standards (NON-NEGOTIABLE)
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+These programming standards MUST be followed throughout the entire program, in each file that is created or edited.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+**Standard 1: File Header**
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Every file MUST start with:
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+```
+بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيمِ
+```
 
-### [PRINCIPLE_6_NAME]
+**Rationale**: Acknowledges divine guidance and blessings at the beginning of each work component, establishing a spiritual foundation for the development process.
 
+**Standard 2: Logical Method / Feature Crux Marker**
 
-[PRINCIPLE__DESCRIPTION]
+Wherever an important logical method is being developed, or something regarded as the crux of a feature, program, or application — something logically critical and important — it MUST start with:
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+```
+وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+```
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+**Rationale**: Marks critical code sections that require special attention.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Standard 3: File Footer**
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+The end of each file MUST conclude with:
+
+```
+وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ
+```
+
+**Rationale**: Acknowledges divine provision and sustenance at the completion of work, expressing gratitude for the ability to create useful tools that serve others.
+
+### II. Quality Standards
+
+- **Accuracy**: Application logic must be 100% accurate.
+- **Reliability**: Processing must handle basic to edge-case errors gracefully.
+- **Efficiency**: Local execution prioritized for performance.
+- **Clarity**: Code must be clear and maintainable by Developer.
+
+### III. Supervised Collaboration
+
+Suggestions and technical recommendations are allowed but MUST be presented under Developer supervision. All proposals must be framed as options for Developer consideration, not as autonomous decisions.
+
+**Rationale**: Maintains Developer control while leveraging AI capabilities for optimization. Ensures technical suggestions align with project vision and constraints.
+
+### IV. Constructive Objection
+
+Objections to proposed approaches, requirements, or implementations are allowed and encouraged when they identify genuine risks, ambiguities, or technical concerns. However, objections MUST be constructive and include alternative suggestions.
+
+**Rationale**: Prevents technical debt and architectural mistakes while maintaining collaborative problem-solving.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- This constitution supersedes all other development practices for this project.
+- Every file created or edited MUST comply with the Code Standards (Principle I).
+- Amendments require Developer approval and MUST update the version and amendment date below.
+- Complexity MUST be justified; prefer the smallest viable change, and keep business requirements separate from technical design.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-09-14 | **Last Amended**: 2026-09-14

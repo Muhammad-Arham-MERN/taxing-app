@@ -1,0 +1,14 @@
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.log
+.env
+.env.*
+secrets.txt

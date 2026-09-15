@@ -1,0 +1,53 @@
+# بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيمِ
+[package]
+name = "tax-statements-analysis"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "tax_statements_analysis_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# SQLite is compiled from source and linked into the executable (research R1), so
+# the shipped application depends on no external library and the practitioner
+# installs nothing. The `blob` feature enables the incremental BLOB I/O used to
+# stream large attachments without materialising them in memory (research R5).
+rusqlite = { version = "0.40", features = ["bundled", "blob"] }
+uuid = { version = "1", features = ["v4"] }
+
+# Desktop-only (not mobile): in-app updates. The plugin refuses any release
+# that is not signed by the private key matching the `pubkey` in
+# `tauri.conf.json`, so the signing key is the root of trust for every update.
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2"
+
+# Windows-only: single-instance enforcement (FR-054) and the drive-type /
+# cloud-sync-root classification behind the risky-location warning (FR-055).
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "2"
+windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+# وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ
