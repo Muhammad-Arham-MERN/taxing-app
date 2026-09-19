@@ -86,4 +86,83 @@ export interface LocationAssessment {
   isEmptyStore: boolean;
 }
 
+// ---- Bills and customers (Module 3) ---------------------------------------
+
+/** A previously billed customer, remembered in the store (FR-066, FR-069). */
+export interface Customer {
+  name: string;
+  address: string | null;
+  contactPerson: string | null;
+  contactNumber: string | null;
+  email: string | null;
+  ntn: string | null;
+  password: string | null;
+}
+
+/** One piece of work on a bill; `position` is the item number shown (FR-014). */
+export interface BillItem {
+  id: string;
+  position: number;
+  details: string;
+  amount: number;
+}
+
+/** An item as entered on the form (no id or position yet). */
+export interface NewBillItem {
+  details: string;
+  amount: number;
+}
+
+/** A stored bill with its customer and line items (FR-001). */
+export interface Bill {
+  id: string;
+  invoiceNo: string;
+  date: string;
+  customer: Customer;
+  jazzcashNumbers: string[];
+  easypaisaNumbers: string[];
+  accountHolder: string;
+  items: BillItem[];
+  total: number;
+  createdAt: string;
+}
+
+/** A new bill as entered on the form (FR-005–FR-023). */
+export interface NewBill {
+  date: string;
+  customer: Customer;
+  jazzcashNumbers: string[];
+  easypaisaNumbers: string[];
+  accountHolder: string;
+  items: NewBillItem[];
+}
+
+/** An edit: the bill's identity plus the values that may change (FR-047). */
+export interface BillUpdate {
+  id: string;
+  date: string;
+  customer: Customer;
+  jazzcashNumbers: string[];
+  easypaisaNumbers: string[];
+  accountHolder: string;
+  items: NewBillItem[];
+}
+
+/** The View Bills filter — both bounds and the customer are optional (FR-038). */
+export interface BillFilter {
+  from: string | null;
+  to: string | null;
+  customer: string | null;
+}
+
+/** A View Bills row, already carrying what the table shows (FR-064). */
+export interface BillSummary {
+  id: string;
+  invoiceNo: string;
+  date: string;
+  customerName: string;
+  details: string;
+  total: number;
+}
+
 // وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

@@ -1,9 +1,15 @@
 // بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيمِ
 import type {
   AttachmentPayload,
+  Bill,
+  BillFilter,
+  BillSummary,
+  BillUpdate,
   BusinessProfile,
   CarryAcrossChoice,
+  Customer,
   LocationAssessment,
+  NewBill,
   NewStatement,
   Statement,
   StatementFilter,
@@ -163,6 +169,65 @@ export interface StorageRepository {
 export interface BusinessProfileRepository {
   get(): Promise<BusinessProfile>;
   save(profile: BusinessProfile): Promise<BusinessProfile>;
+}
+
+// ---- Bills and customers (Module 3) ---------------------------------------
+
+export class UnknownBillError extends Error {
+  constructor(message = "That bill no longer exists.") {
+    super(message);
+    this.name = "UnknownBillError";
+  }
+}
+
+export class InvoiceWriteFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvoiceWriteFailedError";
+  }
+}
+
+export class InvoiceOpenFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvoiceOpenFailedError";
+  }
+}
+
+export interface BillRepository {
+  /** Compose a bill; resolves once stored, with its invoice number and items (FR-022). */
+  create(input: NewBill): Promise<Bill>;
+
+  /** Bills matching the optional date range and optional customer, newest first (FR-038–FR-041). */
+  list(filter: BillFilter): Promise<BillSummary[]>;
+
+  /** One stored bill with its customer and line items (FR-044). */
+  get(id: string): Promise<Bill>;
+
+  /** Correct a bill in place, keeping its identity and invoice number (FR-048). */
+  update(update: BillUpdate): Promise<Bill>;
+
+  /** Delete a bill and its line items (FR-053, FR-054). */
+  remove(id: string): Promise<void>;
+
+  /** Hand a rendered invoice PDF to the system's default PDF application (FR-034). */
+  openInvoice(bytes: Uint8Array, fileName: string): Promise<void>;
+
+  /** Save a rendered invoice PDF wherever the practitioner chooses (FR-035). */
+  saveInvoiceCopy(bytes: Uint8Array, fileName: string): Promise<string | null>;
+}
+
+/**
+ * Customers are remembered as a side effect of saving a bill (FR-066) and are
+ * never deleted (FR-069). There is no create or remove; their own details are
+ * edited from the customer popup in View Bills (client change, 2026-09-19).
+ */
+export interface CustomerRepository {
+  /** Every remembered customer, for the View Bills filter (FR-065). */
+  list(): Promise<Customer[]>;
+
+  /** Save a customer's own details from the customer popup (client change, 2026-09-19). */
+  update(customer: Customer): Promise<Customer>;
 }
 
 // وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

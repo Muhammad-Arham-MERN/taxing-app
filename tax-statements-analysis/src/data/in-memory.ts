@@ -9,9 +9,15 @@
 import type { ZodError } from "zod";
 import type {
   AttachmentPayload,
+  Bill,
+  BillFilter,
+  BillSummary,
+  BillUpdate,
   BusinessProfile,
   CarryAcrossChoice,
+  Customer,
   LocationAssessment,
+  NewBill,
   NewStatement,
   Statement,
   StatementFilter,
@@ -22,9 +28,12 @@ import { newStatementSchema } from "@/domain/validation";
 import {
   DuplicateSubmissionError,
   InvalidRangeError,
+  UnknownBillError,
   UnknownStatementError,
   ValidationError,
+  type BillRepository,
   type BusinessProfileRepository,
+  type CustomerRepository,
   type StatementRepository,
   type StorageRepository,
 } from "@/data/repositories";
@@ -38,6 +47,8 @@ export const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
 export interface Repositories {
   statements: StatementRepository;
   storage: StorageRepository;
+  bills: BillRepository;
+  customers: CustomerRepository;
   businessProfile: BusinessProfileRepository;
 }
 
@@ -250,10 +261,224 @@ export class InMemoryBusinessProfileRepository implements BusinessProfileReposit
   }
 }
 
+// ---- Bills and customers (Module 3) ---------------------------------------
+
+function validateNewBill(input: NewBill): Record<string, string> {
+  const fields: Record<string, string> = {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
+    fields.date = "Choose a valid date.";
+  }
+  if (!input.customer.name.trim()) {
+    fields.customerName = "Enter the customer's name.";
+  }
+  if (input.items.length === 0) {
+    fields.items = "Add at least one item to the bill.";
+  }
+  input.items.forEach((item, index) => {
+    if (!item.details.trim()) {
+      fields[`items.${index}.details`] = "Enter the details for this item.";
+    }
+    if (!Number.isFinite(item.amount) || item.amount <= 0) {
+      fields[`items.${index}.amount`] = "Enter an amount greater than zero.";
+    }
+  });
+  return fields;
+}
+
+function cloneBill(bill: Bill): Bill {
+  return {
+    ...bill,
+    customer: { ...bill.customer },
+    jazzcashNumbers: [...bill.jazzcashNumbers],
+    easypaisaNumbers: [...bill.easypaisaNumbers],
+    items: bill.items.map((item) => ({ ...item })),
+  };
+}
+
+function billId(): string {
+  const cryptoRef = globalThis.crypto;
+  if (cryptoRef && typeof cryptoRef.randomUUID === "function") {
+    return cryptoRef.randomUUID();
+  }
+  return `bill-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function byNewestBillFirst(a: BillSummary, b: BillSummary): number {
+  if (a.date !== b.date) {
+    return a.date < b.date ? 1 : -1;
+  }
+  return a.invoiceNo < b.invoiceNo ? 1 : -1;
+}
+
+/**
+ * Remembered customers. The bill repository writes into it whenever a bill is
+ * saved, which is what implements FR-066 without a "manage customers" screen.
+ */
+export class InMemoryCustomerRepository implements CustomerRepository {
+  /** Keyed by the lower-cased name, so identity is case-insensitive (FR-068). */
+  readonly byKey = new Map<string, Customer>();
+
+  async list(): Promise<Customer[]> {
+    return [...this.byKey.values()].sort((a, b) =>
+      a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1,
+    );
+  }
+
+  async update(customer: Customer): Promise<Customer> {
+    this.remember(customer);
+    return { ...customer };
+  }
+
+  remember(customer: Customer): void {
+    this.byKey.set(customer.name.toLowerCase(), { ...customer });
+  }
+}
+
+// وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+export class InMemoryBillRepository implements BillRepository {
+  private readonly bills: Bill[] = [];
+
+  /** Only ever incremented: a deleted bill's number is never issued again (SC-021). */
+  private sequence = 0;
+
+  constructor(private readonly customers: InMemoryCustomerRepository) {}
+
+  async create(input: NewBill): Promise<Bill> {
+    const fields = validateNewBill(input);
+    if (Object.keys(fields).length > 0) {
+      throw new ValidationError(fields);
+    }
+
+    this.sequence += 1;
+    const bill: Bill = {
+      id: billId(),
+      invoiceNo: `INV-${String(this.sequence).padStart(4, "0")}`,
+      date: input.date,
+      customer: { ...input.customer },
+      jazzcashNumbers: [...input.jazzcashNumbers],
+      easypaisaNumbers: [...input.easypaisaNumbers],
+      accountHolder: input.accountHolder,
+      items: input.items.map((item, index) => ({
+        id: billId(),
+        position: index + 1,
+        details: item.details,
+        amount: item.amount,
+      })),
+      total: input.items.reduce((sum, item) => sum + item.amount, 0),
+      createdAt: new Date().toISOString(),
+    };
+
+    this.customers.remember(bill.customer);
+    this.bills.push(bill);
+    return cloneBill(bill);
+  }
+
+  async list(filter: BillFilter): Promise<BillSummary[]> {
+    if (filter.from && filter.to && filter.from > filter.to) {
+      throw new InvalidRangeError();
+    }
+
+    return this.bills
+      .filter((bill) => {
+        if (filter.from && bill.date < filter.from) {
+          return false;
+        }
+        if (filter.to && bill.date > filter.to) {
+          return false;
+        }
+        if (
+          filter.customer &&
+          bill.customer.name.toLowerCase() !== filter.customer.toLowerCase()
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((bill) => ({
+        id: bill.id,
+        invoiceNo: bill.invoiceNo,
+        date: bill.date,
+        customerName: bill.customer.name,
+        details: bill.items.map((item) => item.details).join("; "),
+        total: bill.total,
+      }))
+      .sort(byNewestBillFirst);
+  }
+
+  async get(id: string): Promise<Bill> {
+    const bill = this.bills.find((candidate) => candidate.id === id);
+    if (!bill) {
+      throw new UnknownBillError();
+    }
+    return cloneBill(bill);
+  }
+
+  async update(update: BillUpdate): Promise<Bill> {
+    const index = this.bills.findIndex((bill) => bill.id === update.id);
+    if (index === -1) {
+      throw new UnknownBillError();
+    }
+
+    const fields = validateNewBill({
+      date: update.date,
+      customer: update.customer,
+      jazzcashNumbers: update.jazzcashNumbers,
+      easypaisaNumbers: update.easypaisaNumbers,
+      accountHolder: update.accountHolder,
+      items: update.items,
+    });
+    if (Object.keys(fields).length > 0) {
+      throw new ValidationError(fields);
+    }
+
+    const existing = this.bills[index];
+    const updated: Bill = {
+      ...existing,
+      date: update.date,
+      customer: { ...update.customer },
+      jazzcashNumbers: [...update.jazzcashNumbers],
+      easypaisaNumbers: [...update.easypaisaNumbers],
+      accountHolder: update.accountHolder,
+      // The invoice number is deliberately untouched, and the items are
+      // renumbered from the order given (FR-048, FR-015).
+      items: update.items.map((item, position) => ({
+        id: existing.items[position]?.id ?? billId(),
+        position: position + 1,
+        details: item.details,
+        amount: item.amount,
+      })),
+      total: update.items.reduce((sum, item) => sum + item.amount, 0),
+    };
+
+    this.customers.remember(updated.customer);
+    this.bills[index] = updated;
+    return cloneBill(updated);
+  }
+
+  async remove(id: string): Promise<void> {
+    const index = this.bills.findIndex((bill) => bill.id === id);
+    if (index === -1) {
+      throw new UnknownBillError();
+    }
+    this.bills.splice(index, 1);
+  }
+
+  /** The fixture has no operating system to hand the invoice to. */
+  async openInvoice(): Promise<void> {}
+
+  /** Nor a save prompt, so nothing is written. */
+  async saveInvoiceCopy(): Promise<string | null> {
+    return null;
+  }
+}
+
 export function createInMemoryRepositories(): Repositories {
+  const customers = new InMemoryCustomerRepository();
   return {
     statements: new InMemoryStatementRepository(),
     storage: new InMemoryStorageRepository(),
+    bills: new InMemoryBillRepository(customers),
+    customers,
     businessProfile: new InMemoryBusinessProfileRepository(),
   };
 }

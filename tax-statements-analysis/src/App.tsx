@@ -5,6 +5,8 @@ import { DataProvider, useRepositories } from "@/components/providers/DataProvid
 import { THEME_STORAGE_KEY, ThemeProvider } from "@/components/providers/ThemeProvider";
 import { StorageGate } from "@/components/storage/StorageGate";
 import { StorageLocationDialog } from "@/components/storage/StorageLocationDialog";
+import { CreateBillForm } from "@/components/bills/CreateBillForm";
+import { ViewBillsTab } from "@/components/bills/ViewBillsTab";
 import { CreateStatementForm } from "@/components/statements/CreateStatementForm";
 import { createDefaultFilter, DateRangeFilter } from "@/components/statements/DateRangeFilter";
 import { StatementsTable } from "@/components/statements/StatementsTable";
@@ -101,18 +103,52 @@ function AppShell() {
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         {ready ? (
-          <Tabs defaultValue="create" className="items-center gap-8">
-            <TabsList>
-              <TabsTrigger value="create">Create</TabsTrigger>
-              <TabsTrigger value="view">View</TabsTrigger>
-            </TabsList>
+          <Tabs defaultValue="create-statement" className="items-center gap-8">
+            {/* Two labelled groups — Statements and Bills — separated by a gap
+                rather than a rule (FR-001–FR-003); the statements panels are
+                unchanged. */}
+            <div
+              data-slot="nav-groups"
+              className="flex flex-wrap items-start justify-center gap-10"
+            >
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Statements
+                </span>
+                <TabsList>
+                  <TabsTrigger value="create-statement">Create</TabsTrigger>
+                  <TabsTrigger value="view-statements">View</TabsTrigger>
+                </TabsList>
+              </div>
 
-            <TabsContent value="create" className="tab-content-enter w-full">
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Bills
+                </span>
+                <TabsList>
+                  <TabsTrigger value="create-bill">Create</TabsTrigger>
+                  <TabsTrigger value="view-bills">View</TabsTrigger>
+                </TabsList>
+              </div>
+            </div>
+
+            <TabsContent value="create-statement" className="tab-content-enter w-full">
               <CreateStatementForm onCreated={() => setRefreshKey((key) => key + 1)} />
             </TabsContent>
 
-            <TabsContent value="view" className="tab-content-enter w-full">
+            <TabsContent value="view-statements" className="tab-content-enter w-full">
               <ViewTab
+                refreshKey={refreshKey}
+                onChanged={() => setRefreshKey((key) => key + 1)}
+              />
+            </TabsContent>
+
+            <TabsContent value="create-bill" className="tab-content-enter w-full">
+              <CreateBillForm onCreated={() => setRefreshKey((key) => key + 1)} />
+            </TabsContent>
+
+            <TabsContent value="view-bills" className="tab-content-enter w-full">
+              <ViewBillsTab
                 refreshKey={refreshKey}
                 onChanged={() => setRefreshKey((key) => key + 1)}
               />

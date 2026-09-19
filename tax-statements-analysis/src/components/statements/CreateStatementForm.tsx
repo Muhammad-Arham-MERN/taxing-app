@@ -153,7 +153,7 @@ export function CreateStatementForm({ onCreated }: CreateStatementFormProps) {
               />
 
               <div className="grid gap-2 lg:col-span-2">
-                <span className="text-sm leading-none font-medium">Type / Nature</span>
+                <span className="text-sm leading-none font-medium">Type & Nature</span>
                 <TypeNatureSelect
                   type={type}
                   nature={nature}

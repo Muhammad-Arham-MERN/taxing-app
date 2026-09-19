@@ -24,6 +24,7 @@ pub enum ErrorKind {
     LocationUnwritable,
     StoreWriteFailed,
     UnknownStatement,
+    UnknownBill,
     AttachmentMissing,
     AttachmentWriteFailed,
     AttachmentOpenFailed,
@@ -68,10 +69,15 @@ impl CommandError {
     }
 
     pub fn validation(fields: BTreeMap<String, String>) -> Self {
+        CommandError::validation_for("statement", fields)
+    }
+
+    /// The same, named for whichever record kind was being saved. Module 3 uses
+    /// it for bills so the practitioner is told which form is at fault.
+    pub fn validation_for(subject: &str, fields: BTreeMap<String, String>) -> Self {
         CommandError {
             kind: ErrorKind::Validation,
-            message: "The statement could not be saved because some fields are not valid."
-                .to_string(),
+            message: format!("The {subject} could not be saved because some fields are not valid."),
             fields: Some(fields),
             copied: None,
             remaining: None,
@@ -122,6 +128,7 @@ impl From<StoreError> for CommandError {
             StoreError::Damaged => ErrorKind::StoreDamaged,
             StoreError::Unwritable(_) => ErrorKind::LocationUnwritable,
             StoreError::UnknownStatement => ErrorKind::UnknownStatement,
+            StoreError::UnknownBill => ErrorKind::UnknownBill,
             StoreError::NoAttachment => ErrorKind::AttachmentMissing,
             StoreError::Sqlite(_) | StoreError::Io(_) => ErrorKind::StoreWriteFailed,
         };
