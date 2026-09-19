@@ -55,8 +55,8 @@ function emptyBillForm(): BillFormInput {
     email: "",
     ntn: "",
     customerPassword: "",
-    jazzcashNumbers: [""],
-    easypaisaNumbers: [""],
+    jazzcashNumbers: [{ number: "" }],
+    easypaisaNumbers: [{ number: "" }],
     accountHolder: "",
     items: [{ details: "", amount: "" }],
   };
@@ -72,8 +72,14 @@ function toFormInput(bill: Bill): BillFormInput {
     email: bill.customer.email ?? "",
     ntn: bill.customer.ntn ?? "",
     customerPassword: bill.customer.password ?? "",
-    jazzcashNumbers: bill.jazzcashNumbers.length > 0 ? bill.jazzcashNumbers : [""],
-    easypaisaNumbers: bill.easypaisaNumbers.length > 0 ? bill.easypaisaNumbers : [""],
+    jazzcashNumbers:
+      bill.jazzcashNumbers.length > 0
+        ? bill.jazzcashNumbers.map((number) => ({ number }))
+        : [{ number: "" }],
+    easypaisaNumbers:
+      bill.easypaisaNumbers.length > 0
+        ? bill.easypaisaNumbers.map((number) => ({ number }))
+        : [{ number: "" }],
     accountHolder: bill.accountHolder,
     items: bill.items.map((item) => ({
       details: item.details,

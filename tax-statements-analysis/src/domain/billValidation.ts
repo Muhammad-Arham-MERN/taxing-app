@@ -36,9 +36,18 @@ function walletNumberInputSchema(example: string) {
     );
 }
 
-function cleanNumbers(numbers: string[]): string[] {
+/**
+ * Each wallet's numbers. They are objects rather than bare strings because
+ * `useFieldArray` only tracks arrays of objects, which is what gives the form
+ * its add and remove rows.
+ */
+function walletNumbersSchema(example: string) {
+  return z.array(z.object({ number: walletNumberInputSchema(example) }));
+}
+
+function cleanNumbers(numbers: Array<{ number: string }>): string[] {
   return numbers
-    .map((number) => number.trim())
+    .map((entry) => entry.number.trim())
     .filter((number) => number.length > 0);
 }
 
@@ -56,8 +65,8 @@ export const billFormSchema = z.object({
   email: optionalTextSchema,
   ntn: optionalTextSchema,
   customerPassword: z.string().trim(),
-  jazzcashNumbers: z.array(walletNumberInputSchema(WALLET_PLACEHOLDERS.jazzcash)),
-  easypaisaNumbers: z.array(walletNumberInputSchema(WALLET_PLACEHOLDERS.easypaisa)),
+  jazzcashNumbers: walletNumbersSchema(WALLET_PLACEHOLDERS.jazzcash),
+  easypaisaNumbers: walletNumbersSchema(WALLET_PLACEHOLDERS.easypaisa),
   accountHolder: z.string().trim().min(1, "Account holder name is required."),
   items: z
     .array(billItemInputSchema)

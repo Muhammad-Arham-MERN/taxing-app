@@ -56,13 +56,20 @@ jobs:
         working-directory: tax-statements-analysis/src-tauri
         run: |
           $tag = "${{ github.ref_name }}"
-          $version = $tag -replace '^app-v', ''
-          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
-            throw "Tag '$tag' does not carry a version (expected app-v1.2.3)."
+          $raw = $tag -replace '^app-v', ''
+          if ($raw -notmatch '^\d+(\.\d+){0,2}(-[0-9A-Za-z.]+)?$') {
+            throw "Tag '$tag' does not carry a version (expected app-v2.5 or app-v2.5.1)."
           }
+          # Tauri and latest.json require full semver, so a two-part tag such as
+          # app-v2.5 becomes 2.5.0 instead of failing the build.
+          $core, $suffix = $raw -split '-', 2
+          $parts = @($core.Split('.') | Where-Object { $_ -ne '' })
+          while ($parts.Count -lt 3) { $parts += '0' }
+          $version = $parts -join '.'
+          if ($suffix) { $version = "$version-$suffix" }
           $path = Join-Path $PWD 'tauri.conf.json'
           $conf = Get-Content $path -Raw | ConvertFrom-Json
-          Write-Host "Building version $version (was $($conf.version))"
+          Write-Host "Tag $tag -> version $version (was $($conf.version))"
           $conf.version = $version
           # Written without a byte-order mark: a BOM makes the JSON unreadable.
           $json = $conf | ConvertTo-Json -Depth 32

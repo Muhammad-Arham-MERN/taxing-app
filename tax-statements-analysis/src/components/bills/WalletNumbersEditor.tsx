@@ -33,13 +33,18 @@ export function WalletNumbersEditor({
   label,
   disabled = false,
 }: WalletNumbersEditorProps) {
-  const { fields, append, remove } = useFieldArray({ control, name });
+  // The generics are pinned because `name` is a union: without them TypeScript
+  // infers the array from the last path it saw, not from either wallet list.
+  const { fields, append, remove } = useFieldArray<BillFormInput, WalletNumbersName>({
+    control,
+    name,
+  });
   const { errors } = useFormState({ control });
 
   // Read this list's per-row errors so a wrong number is explained, not just
   // left with the Create action disabled (client request, 2026-09-19).
   const listErrors = (errors as Record<string, unknown>)[name] as
-    | Array<{ message?: string } | undefined>
+    | Array<{ number?: { message?: string } } | undefined>
     | undefined;
 
   // Each wallet keeps its own default example as the placeholder.
@@ -58,7 +63,7 @@ export function WalletNumbersEditor({
           size="sm"
           aria-label={`Add ${label}`}
           disabled={disabled}
-          onClick={() => append("")}
+          onClick={() => append({ number: "" })}
         >
           <Plus aria-hidden="true" />
           Add
@@ -66,7 +71,7 @@ export function WalletNumbersEditor({
       </div>
 
       {fields.map((field, index) => {
-        const message = listErrors?.[index]?.message;
+        const message = listErrors?.[index]?.number?.message;
         return (
           <div key={field.id} className="grid gap-1">
             <div className="flex gap-2">
@@ -75,7 +80,7 @@ export function WalletNumbersEditor({
                 inputMode="tel"
                 placeholder={placeholder}
                 disabled={disabled}
-                {...control.register(`${name}.${index}` as FieldPath<BillFormInput>)}
+                {...control.register(`${name}.${index}.number` as FieldPath<BillFormInput>)}
               />
               <Button
                 type="button"

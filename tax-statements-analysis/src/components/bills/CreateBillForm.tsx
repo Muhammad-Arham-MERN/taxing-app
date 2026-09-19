@@ -54,8 +54,8 @@ function createEmptyForm(): BillFormInput {
     // The practice's own wallet numbers are filled in by default; the
     // practitioner can clear one and put another in its place (client request,
     // 2026-09-19).
-    jazzcashNumbers: [WALLET_PLACEHOLDERS.jazzcash],
-    easypaisaNumbers: [WALLET_PLACEHOLDERS.easypaisa],
+    jazzcashNumbers: [{ number: WALLET_PLACEHOLDERS.jazzcash }],
+    easypaisaNumbers: [{ number: WALLET_PLACEHOLDERS.easypaisa }],
     accountHolder: DEFAULT_ACCOUNT_HOLDER,
     items: [{ details: "", amount: "" }],
   };
