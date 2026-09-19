@@ -82,7 +82,16 @@ jobs:
       # latest.json. updaterJsonPreferNsis points latest.json at the NSIS
       # setup.exe rather than the .msi, so that the `passive` installMode in
       # tauri.conf.json actually applies — the MSI path ignores it.
-      - uses: tauri-apps/tauri-action@v1
+      #
+      # Pinned to v0 on purpose. tauri-action v1.0.0 writes latest.json's
+      # download urls as GitHub API asset urls
+      # (api.github.com/repos/.../releases/assets/<id>): those are capped at 60
+      # unauthenticated requests per hour per IP, so a client that exhausts the
+      # quota gets a 403 instead of the installer and the update fails
+      # silently. v0 writes github.com/.../releases/download/<tag>, which
+      # redirects to the asset CDN and is not rate limited. Do not bump this
+      # without rewriting the urls in latest.json after the upload.
+      - uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

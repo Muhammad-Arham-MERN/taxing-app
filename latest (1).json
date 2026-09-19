@@ -1,0 +1,19 @@
+{
+  "version": "2.7.0",
+  "notes": "See the assets to download this version and install.",
+  "pub_date": "2026-09-19T09:09:27.410Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSkh0Qld0b1RuZVR1V3hJMDAyeXM5Z21YKzdOSWowVHcwRm9oMUxyWTMvNmk5RjI3Ly83b0J1ak9xaTRBSGo2WlIxVVdKSXNTaUNsQWdiUWp2Y1EzU0VUWjhUNjdrVUFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5ODA4OTYzCWZpbGU6dGF4LXN0YXRlbWVudHMtYW5hbHlzaXNfMi43LjBfeDY0LXNldHVwLmV4ZQo4YldjVTlseUNrTUlTTFN2LzJxY1RGVzJvUDV3eWF5K3dtWWR2NzZQcnNnR1B5a2pPeFFGd3pncUpIZUdxMXFKSlBkRFp6SHZUZHlaVUEwK3pLbzNBQT09Cg==",
+      "url": "https://api.github.com/repos/Muhammad-Arham-MERN/taxing-app/releases/assets/574451758"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSkh0Qld0b1RuZVR1V3hJMDAyeXM5Z21YKzdOSWowVHcwRm9oMUxyWTMvNmk5RjI3Ly83b0J1ak9xaTRBSGo2WlIxVVdKSXNTaUNsQWdiUWp2Y1EzU0VUWjhUNjdrVUFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5ODA4OTYzCWZpbGU6dGF4LXN0YXRlbWVudHMtYW5hbHlzaXNfMi43LjBfeDY0LXNldHVwLmV4ZQo4YldjVTlseUNrTUlTTFN2LzJxY1RGVzJvUDV3eWF5K3dtWWR2NzZQcnNnR1B5a2pPeFFGd3pncUpIZUdxMXFKSlBkRFp6SHZUZHlaVUEwK3pLbzNBQT09Cg==",
+      "url": "https://api.github.com/repos/Muhammad-Arham-MERN/taxing-app/releases/assets/574451758"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSkh0Qld0b1RuZWJFZ3FPWUZ6eDlDOVdvNTNVOXd4bVlBWGhIVHhncTkzd2hXbGg5STZMYURUdEJNOTgxejgwbFhhQlJGMFJ4ZVc1cXI3SFZKOWEyN0lDMkJnbWF1a2c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5ODA4OTYzCWZpbGU6dGF4LXN0YXRlbWVudHMtYW5hbHlzaXNfMi43LjBfeDY0X2VuLVVTLm1zaQpOZU83OGdmWE1QdGl6RjJDaXkrRlh4VE9ZUGdGSk9FV3pRTkQvZUg5MTVjV0FBdSt5WUI2WC91Y0dHOG1sZXIrT3hHRitEck9XT1htTXBZK2Y4QnRCdz09Cg==",
+      "url": "https://api.github.com/repos/Muhammad-Arham-MERN/taxing-app/releases/assets/574451727"
+    }
+  }
+}
