@@ -197,6 +197,11 @@ If ALL true, suggest:
 Wait for consent; never auto-create ADRs. Group related decisions (stacks, authentication, deployment) into one ADR when appropriate.
 
 ## Active Technologies
+- TypeScript/React 19 frontend + Rust/Tauri v2 backend (unchanged toolchain) — feature `003-bills-invoice`
+- `@react-pdf/renderer` (new frontend dep): the invoice PDF is rendered on demand from the bill's values and the bytes are handed to Rust, which writes them to the run temp folder + opener or the save dialog — feature `003-bills-invoice`
+- SQLite store schema v1→v2, additive migration on open: new `customers`, `bills`, `bill_items` tables plus a monotonic `next_invoice_no` counter in `app_meta`; amounts integer paisa; customer key is `name COLLATE NOCASE` — feature `003-bills-invoice`
+- New Tauri commands: `create_bill`, `list_bills`, `get_bill`, `update_bill`, `delete_bill`, `list_customers`, `open_bill_invoice`, `save_bill_invoice_copy` — feature `003-bills-invoice`
+- Location change carry-across extended to customers → bills → line items + invoice counter — feature `003-bills-invoice`
 
 - Rust 1.77.2+ (edition 2021) with Tauri v2 — backend — feature `002-statements-persistence`
 - SQLite via `rusqlite` (`bundled`, statically linked): one self-contained store file at a practitioner-chosen location; rollback journal, not WAL, so the `.db` alone is a copyable backup — feature `002-statements-persistence`
@@ -213,7 +218,7 @@ Wait for consent; never auto-create ADRs. Group related decisions (stacks, authe
 - react-hook-form + zod; date-fns + react-day-picker; TanStack Table — feature `001-statements-entry-view`
 - In-memory repository seam (`src/data/in-memory.ts`) — retained as the frontend test fixture only; the running application uses `src/data/tauri.ts`
 
-**Last updated**: 2026-09-14
+**Last updated**: 2026-09-19
 
 ## Basic Project Structure
 

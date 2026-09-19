@@ -18,21 +18,32 @@ import {
   AttachmentWriteFailedError,
   CarryAcrossInterruptedError,
   InvalidRangeError,
+  InvoiceOpenFailedError,
+  InvoiceWriteFailedError,
   LocationUnreachableError,
   LocationUnwritableError,
   NoStorageLocationError,
   NotAStoreError,
   StoreDamagedError,
   StoreWriteFailedError,
+  UnknownBillError,
   UnknownStatementError,
   ValidationError,
+  type BillRepository,
+  type CustomerRepository,
   type StatementRepository,
   type StorageRepository,
 } from "@/data/repositories";
 import type {
   AttachmentPayload,
+  Bill,
+  BillFilter,
+  BillSummary,
+  BillUpdate,
   CarryAcrossChoice,
+  Customer,
   LocationAssessment,
+  NewBill,
   NewStatement,
   Statement,
   StatementFilter,
@@ -42,6 +53,9 @@ import type {
 
 /** Where the statement's own fields travel when the body holds a file. */
 const META_HEADER = "x-statement-meta";
+
+/** Where a rendered invoice's file name travels when the body holds the PDF. */
+const INVOICE_META_HEADER = "x-bill-invoice-meta";
 
 interface BackendError {
   kind: string;
@@ -64,6 +78,12 @@ function toSeamError(raw: unknown): Error {
       return new InvalidRangeError();
     case "unknownStatement":
       return new UnknownStatementError();
+    case "unknownBill":
+      return new UnknownBillError();
+    case "invoiceWriteFailed":
+      return new InvoiceWriteFailedError(message);
+    case "invoiceOpenFailed":
+      return new InvoiceOpenFailedError(message);
     case "attachmentWriteFailed":
       return new AttachmentWriteFailedError(message);
     case "attachmentOpenFailed":
@@ -102,10 +122,11 @@ async function callRaw<T>(
   command: string,
   bytes: Uint8Array,
   meta: unknown,
+  header = META_HEADER,
 ): Promise<T> {
   try {
     return await invoke<T>(command, bytes, {
-      headers: { [META_HEADER]: JSON.stringify(meta) },
+      headers: { [header]: JSON.stringify(meta) },
     });
   } catch (raw) {
     throw toSeamError(raw);
@@ -189,6 +210,62 @@ export class TauriStorageRepository implements StorageRepository {
       path,
       carryAcross,
     });
+  }
+}
+
+export class TauriBillRepository implements BillRepository {
+  async create(input: NewBill): Promise<Bill> {
+    return call<Bill>("create_bill", { input });
+  }
+
+  async list(filter: BillFilter): Promise<BillSummary[]> {
+    return call<BillSummary[]>("list_bills", {
+      from: filter.from,
+      to: filter.to,
+      customer: filter.customer,
+    });
+  }
+
+  async get(id: string): Promise<Bill> {
+    return call<Bill>("get_bill", { id });
+  }
+
+  async update(update: BillUpdate): Promise<Bill> {
+    return call<Bill>("update_bill", { update });
+  }
+
+  async remove(id: string): Promise<void> {
+    await call<void>("delete_bill", { id });
+  }
+
+  /**
+   * The invoice is rendered in the frontend and never stored: its bytes travel
+   * as the raw body, with only the suggested file name beside them (FR-027).
+   */
+  async openInvoice(bytes: Uint8Array, fileName: string): Promise<void> {
+    await callRaw<void>("open_bill_invoice", bytes, { fileName }, INVOICE_META_HEADER);
+  }
+
+  async saveInvoiceCopy(
+    bytes: Uint8Array,
+    fileName: string,
+  ): Promise<string | null> {
+    return callRaw<string | null>(
+      "save_bill_invoice_copy",
+      bytes,
+      { fileName },
+      INVOICE_META_HEADER,
+    );
+  }
+}
+
+export class TauriCustomerRepository implements CustomerRepository {
+  async list(): Promise<Customer[]> {
+    return call<Customer[]>("list_customers");
+  }
+
+  async update(customer: Customer): Promise<Customer> {
+    return call<Customer>("update_customer", { customer });
   }
 }
 

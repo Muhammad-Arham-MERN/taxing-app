@@ -4,6 +4,7 @@
 //! as possible (plan.md → Constitution Check).
 
 pub mod attachments;
+pub mod bills;
 pub mod error;
 pub mod statements;
 pub mod storage;

@@ -13,6 +13,16 @@ export function formatAmount(amount: number): string {
   return `₨ ${amountFormatter.format(amount)}`;
 }
 
+/**
+ * Bills present amounts in PKR with comma thousands separators (FR-026).
+ *
+ * The existing `formatAmount` (₨) is deliberately left unchanged for
+ * statements — the two presentations coexist (spec Clarifications, 2026-09-18).
+ */
+export function formatPkr(amount: number): string {
+  return `PKR ${amountFormatter.format(amount)}`;
+}
+
 export function formatOptional(value: string | null | undefined): string {
   const trimmed = value?.trim();
   return trimmed ? trimmed : NONE;

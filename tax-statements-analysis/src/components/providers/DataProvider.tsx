@@ -6,18 +6,30 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { StatementRepository, StorageRepository } from "@/data/repositories";
+import type {
+  BillRepository,
+  CustomerRepository,
+  StatementRepository,
+  StorageRepository,
+} from "@/data/repositories";
 import {
   createInMemoryRepositories,
   InMemoryBusinessProfileRepository,
   type Repositories,
 } from "@/data/in-memory";
-import { TauriStatementRepository, TauriStorageRepository } from "@/data/tauri";
+import {
+  TauriBillRepository,
+  TauriCustomerRepository,
+  TauriStatementRepository,
+  TauriStorageRepository,
+} from "@/data/tauri";
 import type { StorageState } from "@/domain/types";
 
 interface DataContextValue {
   statements: StatementRepository;
   storage: StorageRepository;
+  bills: BillRepository;
+  customers: CustomerRepository;
   /** `null` until the first read of the storage state completes. */
   storageState: StorageState | null;
   refreshStorage: () => Promise<void>;
@@ -38,6 +50,8 @@ function tauriRepositories(): Repositories {
   return {
     statements: new TauriStatementRepository(),
     storage: new TauriStorageRepository(),
+    bills: new TauriBillRepository(),
+    customers: new TauriCustomerRepository(),
     // The header's details are fixed and are never stored (FR-053), so this
     // remains an in-memory constant even in the running application.
     businessProfile: new InMemoryBusinessProfileRepository(),
@@ -65,6 +79,8 @@ export function DataProvider({
       value={{
         statements: source.statements,
         storage: source.storage,
+        bills: source.bills,
+        customers: source.customers,
         storageState,
         refreshStorage,
       }}
