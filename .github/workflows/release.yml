@@ -48,6 +48,28 @@ jobs:
         working-directory: tax-statements-analysis
         run: npm ci
 
+      # The pushed tag is the single source of truth for the version. Tauri reads
+      # its version from tauri.conf.json (never from the tag), so it is stamped in
+      # here before the build. Nothing version-related has to be edited by hand.
+      - name: set version from the tag
+        shell: pwsh
+        working-directory: tax-statements-analysis/src-tauri
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^app-v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "Tag '$tag' does not carry a version (expected app-v1.2.3)."
+          }
+          $path = Join-Path $PWD 'tauri.conf.json'
+          $conf = Get-Content $path -Raw | ConvertFrom-Json
+          Write-Host "Building version $version (was $($conf.version))"
+          $conf.version = $version
+          # Written without a byte-order mark: a BOM makes the JSON unreadable.
+          $json = $conf | ConvertTo-Json -Depth 32
+          [System.IO.File]::WriteAllText(
+            $path, $json, (New-Object System.Text.UTF8Encoding($false))
+          )
+
       # tauri-action finds the release for the pushed tag (creating it if this
       # is the first time) and uploads the installers, their .sig files, and
       # latest.json. updaterJsonPreferNsis points latest.json at the NSIS
