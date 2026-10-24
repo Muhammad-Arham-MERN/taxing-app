@@ -15,25 +15,48 @@ import type {
   BillUpdate,
   BusinessProfile,
   CarryAcrossChoice,
+  Category,
+  CategoryInput,
+  Client,
+  ClientRecord,
+  ClientRecordUpdate,
+  CloudStatus,
+  CloudUsage,
+  ObjectUsage,
+  ReconnectResult,
   Customer,
   LocationAssessment,
   NewBill,
+  NewClientRecord,
   NewStatement,
+  SecretsPasteResult,
+  SetupConnectResult,
+  SetupState,
   Statement,
   StatementFilter,
   StatementUpdate,
   StorageState,
+  SyncOutcome,
+  SyncResult,
 } from "@/domain/types";
 import { newStatementSchema } from "@/domain/validation";
 import {
   DuplicateSubmissionError,
   InvalidRangeError,
   UnknownBillError,
+  UnknownCategoryError,
+  UnknownClientError,
+  UnknownRecordError,
   UnknownStatementError,
   ValidationError,
   type BillRepository,
   type BusinessProfileRepository,
+  type CategoryRepository,
+  type ClientRecordRepository,
+  type ClientRepository,
+  type CloudRepository,
   type CustomerRepository,
+  type SetupRepository,
   type StatementRepository,
   type StorageRepository,
 } from "@/data/repositories";
@@ -49,7 +72,12 @@ export interface Repositories {
   storage: StorageRepository;
   bills: BillRepository;
   customers: CustomerRepository;
+  clients: ClientRepository;
+  categories: CategoryRepository;
+  clientRecords: ClientRecordRepository;
   businessProfile: BusinessProfileRepository;
+  cloud: CloudRepository;
+  setup: SetupRepository;
 }
 
 function createStatementId(): string {
@@ -194,6 +222,15 @@ export class InMemoryStatementRepository implements StatementRepository {
     return updated;
   }
 
+  async remove(id: string): Promise<void> {
+    const index = this.statements.findIndex((statement) => statement.id === id);
+    if (index === -1) {
+      throw new UnknownStatementError();
+    }
+    this.statements.splice(index, 1);
+    this.files.delete(id);
+  }
+
   /** The fixture has no operating system to hand a file to. */
   async openAttachment(): Promise<void> {}
 
@@ -331,6 +368,219 @@ export class InMemoryCustomerRepository implements CustomerRepository {
 
   remember(customer: Customer): void {
     this.byKey.set(customer.name.toLowerCase(), { ...customer });
+  }
+}
+
+/** Add each value once, case-insensitively, ignoring blanks (the store's merge). */
+function unionContacts(...lists: string[][]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of lists.flat()) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/** The contact book. The merge matches the store's: first name wins, contacts union. */
+export class InMemoryClientRepository implements ClientRepository {
+  private readonly byCnic = new Map<string, Client>();
+
+  async create(input: Client): Promise<Client> {
+    const key = input.cnic.trim().toLowerCase();
+    const existing = this.byCnic.get(key);
+    const merged: Client = existing
+      ? {
+          ...existing,
+          company: existing.company ?? input.company,
+          password: existing.password ?? input.password,
+          phones: unionContacts(existing.phones, input.phones),
+          whatsapps: unionContacts(existing.whatsapps, input.whatsapps),
+          emails: unionContacts(existing.emails, input.emails),
+        }
+      : {
+          cnic: input.cnic.trim(),
+          name: input.name.trim(),
+          company: input.company,
+          password: input.password,
+          phones: unionContacts(input.phones),
+          whatsapps: unionContacts(input.whatsapps),
+          emails: unionContacts(input.emails),
+        };
+    this.byCnic.set(key, merged);
+    return { ...merged };
+  }
+
+  /** A true replace, matching the store's `update_within` (a removed number disappears). */
+  async update(input: Client): Promise<Client> {
+    const key = input.cnic.trim().toLowerCase();
+    if (!this.byCnic.has(key)) {
+      throw new UnknownClientError();
+    }
+    const replaced: Client = {
+      cnic: input.cnic.trim(),
+      name: input.name.trim(),
+      company: input.company,
+      password: input.password,
+      phones: unionContacts(input.phones),
+      whatsapps: unionContacts(input.whatsapps),
+      emails: unionContacts(input.emails),
+    };
+    this.byCnic.set(key, replaced);
+    return { ...replaced };
+  }
+
+  async list(): Promise<Client[]> {
+    return [...this.byCnic.values()]
+      .map((client) => ({ ...client }))
+      .sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+  }
+
+  async remove(cnic: string): Promise<void> {
+    this.byCnic.delete(cnic.trim().toLowerCase());
+  }
+}
+
+/** The global category list. Deleting one clears the tag from clients and records. */
+export class InMemoryCategoryRepository implements CategoryRepository {
+  private readonly items: Category[] = [];
+
+  async list(): Promise<Category[]> {
+    return this.items
+      .map((category) => ({ ...category }))
+      .sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+  }
+
+  async create(input: CategoryInput): Promise<Category> {
+    const taken = new Set(this.items.map((category) => category.name.toLowerCase()));
+    if (taken.has(input.name.trim().toLowerCase())) {
+      throw new ValidationError({ name: "A category with that name already exists." });
+    }
+    const category: Category = {
+      id: `category-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+      name: input.name.trim(),
+      color: input.color,
+    };
+    this.items.push(category);
+    return { ...category };
+  }
+
+  async update(id: string, input: CategoryInput): Promise<Category> {
+    const index = this.items.findIndex((category) => category.id === id);
+    if (index === -1) {
+      throw new UnknownCategoryError();
+    }
+    const taken = this.items.some(
+      (category) =>
+        category.id !== id && category.name.toLowerCase() === input.name.trim().toLowerCase(),
+    );
+    if (taken) {
+      throw new ValidationError({ name: "A category with that name already exists." });
+    }
+    const updated: Category = { id, name: input.name.trim(), color: input.color };
+    this.items[index] = updated;
+    return { ...updated };
+  }
+
+  async remove(id: string): Promise<void> {
+    const index = this.items.findIndex((category) => category.id === id);
+    if (index === -1) {
+      throw new UnknownCategoryError();
+    }
+    this.items.splice(index, 1);
+  }
+}
+
+/** A client's own records. Not wired to the client book's own list, which is fine for tests. */
+export class InMemoryClientRecordRepository implements ClientRecordRepository {
+  private readonly records: ClientRecord[] = [];
+  private readonly files = new Map<string, AttachmentPayload>();
+
+  async list(cnic: string): Promise<ClientRecord[]> {
+    return this.records
+      .filter((record) => record.cnic.toLowerCase() === cnic.trim().toLowerCase())
+      .map((record) => ({ ...record }))
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  async create(
+    input: NewClientRecord,
+    attachment?: AttachmentPayload | null,
+  ): Promise<ClientRecord> {
+    const id = `record-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+    const record: ClientRecord = {
+      id,
+      cnic: input.cnic.trim(),
+      name: input.name.trim(),
+      date: input.date,
+      remarks: input.remarks,
+      categoryId: input.categoryId,
+      fileName: attachment?.fileName ?? null,
+      createdAt: new Date().toISOString(),
+    };
+    if (attachment) {
+      this.files.set(id, attachment);
+    }
+    this.records.push(record);
+    return { ...record };
+  }
+
+  async update(update: ClientRecordUpdate): Promise<ClientRecord> {
+    const index = this.records.findIndex((record) => record.id === update.id);
+    if (index === -1) {
+      throw new UnknownRecordError();
+    }
+    let fileName = this.records[index].fileName;
+    switch (update.attachment.action) {
+      case "keep":
+        break;
+      case "remove":
+        this.files.delete(update.id);
+        fileName = null;
+        break;
+      case "replace":
+        this.files.set(update.id, {
+          fileName: update.attachment.fileName,
+          bytes: update.attachment.bytes,
+        });
+        fileName = update.attachment.fileName;
+        break;
+    }
+    const updated: ClientRecord = {
+      ...this.records[index],
+      name: update.name.trim(),
+      date: update.date,
+      remarks: update.remarks,
+      categoryId: update.categoryId,
+      fileName,
+    };
+    this.records[index] = updated;
+    return { ...updated };
+  }
+
+  async remove(id: string): Promise<void> {
+    const index = this.records.findIndex((record) => record.id === id);
+    if (index === -1) {
+      throw new UnknownRecordError();
+    }
+    this.records.splice(index, 1);
+    this.files.delete(id);
+  }
+
+  /** The fixture has no operating system to hand a file to. */
+  async openFile(): Promise<void> {}
+
+  /** Nor a save prompt, so nothing is written. */
+  async saveFileCopy(): Promise<string | null> {
+    return null;
   }
 }
 
@@ -472,6 +722,207 @@ export class InMemoryBillRepository implements BillRepository {
   }
 }
 
+// ---- Cloud sync (Module 4) ------------------------------------------------
+
+/** Tunable behaviour for the cloud twin, so tests can exercise each outcome. */
+export interface CloudTwinOptions {
+  configured?: boolean;
+  hasUnpushed?: boolean;
+  pushOutcome?: SyncOutcome;
+  pushChanged?: boolean;
+  pullOutcome?: SyncOutcome;
+  pullChanged?: boolean;
+  usage?: CloudUsage | null;
+  objectUsage?: ObjectUsage | null;
+  reconnect?: ReconnectResult;
+}
+
+const NOTHING_NEW: SyncOutcome = {
+  kind: "nothing-new",
+  message: "There was nothing new to exchange.",
+};
+
+const SECRETS_UNAVAILABLE: SyncOutcome = {
+  kind: "secrets-unavailable",
+  message: "The cloud connection details are not set up on this computer yet.",
+};
+
+const SUCCESS_PUSH: SyncOutcome = {
+  kind: "success",
+  message: "Your changes are published.",
+};
+
+/**
+ * The cloud twin. Its behaviour is configurable so the contract cases (CS-01 …
+ * CS-14) can be exercised without a network. `emitPulled` stands in for the
+ * background pull's `cloud://pulled` event.
+ */
+export class InMemoryCloudRepository implements CloudRepository {
+  private configured: boolean;
+  private hasUnpushed: boolean;
+  private lastPushedAt: string | null;
+  private readonly pushOutcome: SyncOutcome;
+  private readonly pushChanged: boolean;
+  private readonly pullOutcome: SyncOutcome;
+  private readonly pullChanged: boolean;
+  private readonly usageValue: CloudUsage | null;
+  private readonly objectUsageValue: ObjectUsage | null;
+  private readonly reconnectValue: ReconnectResult;
+  private readonly handlers = new Set<() => void>();
+
+  constructor(options: CloudTwinOptions = {}) {
+    this.configured = options.configured ?? true;
+    this.hasUnpushed = options.hasUnpushed ?? false;
+    this.lastPushedAt = this.hasUnpushed ? null : "2026-01-01T00:00:00.000Z";
+    this.pushOutcome = options.pushOutcome ?? SUCCESS_PUSH;
+    this.pushChanged = options.pushChanged ?? true;
+    this.pullOutcome = options.pullOutcome ?? SUCCESS_PUSH;
+    this.pullChanged = options.pullChanged ?? true;
+    this.usageValue =
+      options.usage ??
+      ({ usedBytes: 0, allowanceBytes: 5 * 1024 * 1024 * 1024, remainingBytes: 5 * 1024 * 1024 * 1024 } as CloudUsage);
+    this.objectUsageValue =
+      options.objectUsage ??
+      ({
+        usedBytes: 0,
+        allowanceBytes: 10 * 1024 * 1024 * 1024,
+        remainingBytes: 10 * 1024 * 1024 * 1024,
+        pendingUploads: 0,
+      } as ObjectUsage);
+    this.reconnectValue =
+      options.reconnect ?? {
+        connected: this.configured,
+        verified: true,
+        message: this.configured
+          ? "Connected to the cloud. Storage figures refreshed."
+          : "The cloud connection details are not set up on this computer yet.",
+        usage: this.usageValue,
+        objectUsage: this.objectUsageValue,
+      };
+  }
+
+  async status(): Promise<CloudStatus> {
+    return {
+      configured: this.configured,
+      hasUnpushed: this.hasUnpushed,
+      lastPushedAt: this.lastPushedAt,
+      phase: "idle",
+    };
+  }
+
+  async push(): Promise<SyncResult> {
+    if (!this.configured) {
+      return { outcome: SECRETS_UNAVAILABLE, changed: false };
+    }
+    if (!this.hasUnpushed) {
+      return { outcome: NOTHING_NEW, changed: false };
+    }
+    if (this.pushOutcome.kind === "success") {
+      this.hasUnpushed = false;
+      this.lastPushedAt = new Date().toISOString();
+      return { outcome: this.pushOutcome, changed: this.pushChanged };
+    }
+    return { outcome: this.pushOutcome, changed: false };
+  }
+
+  async pull(): Promise<SyncResult> {
+    if (!this.configured) {
+      return { outcome: SECRETS_UNAVAILABLE, changed: false };
+    }
+    if (this.pullOutcome.kind === "success") {
+      return { outcome: this.pullOutcome, changed: this.pullChanged };
+    }
+    return { outcome: this.pullOutcome, changed: false };
+  }
+
+  async usage(): Promise<CloudUsage | null> {
+    return this.usageValue;
+  }
+
+  async objectUsage(): Promise<ObjectUsage | null> {
+    return this.objectUsageValue;
+  }
+
+  async reconnect(): Promise<ReconnectResult> {
+    return this.reconnectValue;
+  }
+
+  onPulled(handler: () => void): () => void {
+    this.handlers.add(handler);
+    return () => this.handlers.delete(handler);
+  }
+
+  /** Test helper: pretend a background pull brought something. */
+  emitPulled(): void {
+    for (const handler of [...this.handlers]) {
+      handler();
+    }
+  }
+
+  /** Test helper: pretend a local write happened (sets the un-pushed marker). */
+  markDirty(): void {
+    this.hasUnpushed = true;
+  }
+}
+
+/** The two keys the partner's env file must carry (the rest are optional). */
+const REQUIRED_SECRET_KEYS = ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"];
+
+/** The setup twin. Defaults to "set up" so the tests see the application. */
+export class InMemorySetupRepository implements SetupRepository {
+  constructor(
+    private storageReady = true,
+    private secretsReady = true,
+    private connectOk = true,
+  ) {}
+
+  async state(): Promise<SetupState> {
+    return { storageReady: this.storageReady, secretsReady: this.secretsReady };
+  }
+
+  async saveSecrets(text: string): Promise<SecretsPasteResult> {
+    const missing = REQUIRED_SECRET_KEYS.filter(
+      (key) => !new RegExp(`^\\s*${key}\\s*=`, "m").test(text),
+    );
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        missing,
+        message: `These values are missing or empty: ${missing.join(", ")}. Nothing was saved.`,
+      };
+    }
+    this.secretsReady = true;
+    return {
+      ok: true,
+      missing: [],
+      message: "The cloud connection details were saved.",
+    };
+  }
+
+  async connect(): Promise<SetupConnectResult> {
+    if (!this.secretsReady) {
+      return {
+        ok: false,
+        kind: "secrets-unavailable",
+        message: "The cloud connection details are not set up on this computer yet.",
+      };
+    }
+    if (!this.connectOk) {
+      return {
+        ok: false,
+        kind: "no-internet",
+        message:
+          "The internet could not be reached, so nothing was exchanged. Your work is safe and will publish when the connection is back.",
+      };
+    }
+    return {
+      ok: true,
+      kind: "success",
+      message: "Connected to the cloud. Your records will now sync.",
+    };
+  }
+}
+
 export function createInMemoryRepositories(): Repositories {
   const customers = new InMemoryCustomerRepository();
   return {
@@ -479,7 +930,12 @@ export function createInMemoryRepositories(): Repositories {
     storage: new InMemoryStorageRepository(),
     bills: new InMemoryBillRepository(customers),
     customers,
+    clients: new InMemoryClientRepository(),
+    categories: new InMemoryCategoryRepository(),
+    clientRecords: new InMemoryClientRecordRepository(),
     businessProfile: new InMemoryBusinessProfileRepository(),
+    cloud: new InMemoryCloudRepository(),
+    setup: new InMemorySetupRepository(),
   };
 }
 

@@ -5,7 +5,7 @@
 //! Bills carry no attachments, so their data travels as ordinary JSON. The one
 //! thing that crosses as a file is the **rendered invoice PDF**, which the
 //! frontend produces and this layer simply writes out and opens or saves — it is
-//! never stored (FR-027).
+//! never stored (FR-027). Module 4 makes every command `async` (research R3).
 
 use crate::commands::error::CommandError;
 use crate::state::AppState;
@@ -110,7 +110,26 @@ fn bill_problems(
 /// Record a bill and return it with its assigned invoice number and item
 /// numbers (FR-022, FR-019).
 #[tauri::command]
-pub fn create_bill(state: State<'_, AppState>, input: NewBill) -> Result<Bill, CommandError> {
+pub async fn create_bill(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: NewBill,
+) -> Result<Bill, CommandError> {
+    crate::log_info!(
+        "-> create_bill for '{}' ({} item(s))",
+        input.customer.name,
+        input.items.len()
+    );
+    let result = apply_create_bill(app, state, input).await;
+    crate::commands::log_outcome("create_bill", &result);
+    result
+}
+
+async fn apply_create_bill(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: NewBill,
+) -> Result<Bill, CommandError> {
     let fields = bill_problems(
         &input.date,
         &input.customer.name,
@@ -119,40 +138,85 @@ pub fn create_bill(state: State<'_, AppState>, input: NewBill) -> Result<Bill, C
         &input.easypaisa_numbers,
     );
     if !fields.is_empty() {
+        crate::log_warn!(
+            "create_bill: validation failed on {:?}",
+            fields.keys().collect::<Vec<_>>()
+        );
         return Err(CommandError::validation_for("bill", fields));
     }
 
-    state.with_connection(|conn| bills::create(conn, &input))
+    let created = state
+        .with_connection(|session| async move { bills::create(&session.conn, &input).await })
+        .await?;
+
+    // There are now un-pushed changes on this machine (R8, FR-025).
+    crate::cloud::sync_state::mark_dirty(&app);
+    crate::log_info!("create_bill: stored as {} ({})", created.id, created.invoice_no);
+    Ok(created)
 }
 
 /// The View Bills list, filtered by any combination of an inclusive date range
 /// and a customer (FR-038–FR-041, FR-064).
 #[tauri::command]
-pub fn list_bills(
+pub async fn list_bills(
     state: State<'_, AppState>,
     from: Option<String>,
     to: Option<String>,
     customer: Option<String>,
 ) -> Result<Vec<BillSummary>, CommandError> {
-    state.with_connection(|conn| {
-        bills::list(
-            conn,
-            from.as_deref(),
-            to.as_deref(),
-            customer.as_deref(),
-        )
-    })
+    crate::log_info!("-> list_bills from={from:?} to={to:?} customer={customer:?}");
+    let result = state
+        .with_connection(|session| async move {
+            bills::list(
+                &session.conn,
+                from.as_deref(),
+                to.as_deref(),
+                customer.as_deref(),
+            )
+            .await
+        })
+        .await;
+    if let Ok(ref bills) = result {
+        crate::log_debug!("list_bills: {} returned", bills.len());
+    }
+    crate::commands::log_outcome("list_bills", &result);
+    result
 }
 
 /// One bill with its customer and line items (FR-044).
 #[tauri::command]
-pub fn get_bill(state: State<'_, AppState>, id: String) -> Result<Bill, CommandError> {
-    state.with_connection(|conn| bills::get(conn, &id))
+pub async fn get_bill(state: State<'_, AppState>, id: String) -> Result<Bill, CommandError> {
+    crate::log_info!("-> get_bill {id}");
+    let result = state
+        .with_connection(|session| async move { bills::get(&session.conn, &id).await })
+        .await;
+    crate::commands::log_outcome("get_bill", &result);
+    result
 }
 
 /// Correct a bill in place, keeping its identity and invoice number (FR-048).
 #[tauri::command]
-pub fn update_bill(state: State<'_, AppState>, update: BillUpdate) -> Result<Bill, CommandError> {
+pub async fn update_bill(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    update: BillUpdate,
+) -> Result<Bill, CommandError> {
+    crate::log_info!(
+        "-> update_bill {} for '{}' ({} item(s))",
+        update.id,
+        update.customer.name,
+        update.items.len()
+    );
+    let result = apply_update_bill(app, state, update).await;
+    crate::commands::log_outcome("update_bill", &result);
+    result
+}
+
+async fn apply_update_bill(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    update: BillUpdate,
+) -> Result<Bill, CommandError> {
     let fields = bill_problems(
         &update.date,
         &update.customer.name,
@@ -161,43 +225,101 @@ pub fn update_bill(state: State<'_, AppState>, update: BillUpdate) -> Result<Bil
         &update.easypaisa_numbers,
     );
     if !fields.is_empty() {
+        crate::log_warn!(
+            "update_bill: validation failed on {:?}",
+            fields.keys().collect::<Vec<_>>()
+        );
         return Err(CommandError::validation_for("bill", fields));
     }
 
-    state.with_connection(|conn| bills::update(conn, &update))
+    let updated = state
+        .with_connection(|session| async move { bills::update(&session.conn, &update).await })
+        .await?;
+
+    crate::cloud::sync_state::mark_dirty(&app);
+    crate::log_info!("update_bill: saved {} ({})", updated.id, updated.invoice_no);
+    Ok(updated)
 }
 
 /// Delete a bill and its line items (FR-053, FR-054). The practitioner's
 /// confirmation is a UI responsibility; this removes it once invoked.
 #[tauri::command]
-pub fn delete_bill(state: State<'_, AppState>, id: String) -> Result<(), CommandError> {
-    state.with_connection(|conn| bills::delete(conn, &id))
+pub async fn delete_bill(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), CommandError> {
+    crate::log_info!("-> delete_bill {id}");
+    let result = apply_delete_bill(app, state, id).await;
+    crate::commands::log_outcome("delete_bill", &result);
+    result
+}
+
+async fn apply_delete_bill(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), CommandError> {
+    crate::log_info!("delete_bill: removing {id}");
+    state
+        .with_connection(|session| async move { bills::delete(&session.conn, &id).await })
+        .await?;
+
+    crate::cloud::sync_state::mark_dirty(&app);
+    Ok(())
 }
 
 /// Every remembered customer, for the View Bills Customer filter (FR-065).
 #[tauri::command]
-pub fn list_customers(state: State<'_, AppState>) -> Result<Vec<Customer>, CommandError> {
-    state.with_connection(|conn| customers::list(conn))
+pub async fn list_customers(state: State<'_, AppState>) -> Result<Vec<Customer>, CommandError> {
+    crate::log_info!("-> list_customers");
+    let result = state
+        .with_connection(|session| async move { customers::list(&session.conn).await })
+        .await;
+    if let Ok(ref customers) = result {
+        crate::log_debug!("list_customers: {} returned", customers.len());
+    }
+    crate::commands::log_outcome("list_customers", &result);
+    result
 }
 
 // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
 /// Save a customer's own details — address, contact person, contact number,
 /// email, NTN and password — from the customer popup (client change, 2026-09-19).
 #[tauri::command]
-pub fn update_customer(
+pub async fn update_customer(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    customer: Customer,
+) -> Result<Customer, CommandError> {
+    crate::log_info!("-> update_customer '{}'", customer.name);
+    let result = apply_update_customer(app, state, customer).await;
+    crate::commands::log_outcome("update_customer", &result);
+    result
+}
+
+async fn apply_update_customer(
+    app: AppHandle,
     state: State<'_, AppState>,
     customer: Customer,
 ) -> Result<Customer, CommandError> {
     if customer.name.trim().is_empty() {
+        crate::log_warn!("update_customer: the name is empty");
         let mut fields = BTreeMap::new();
         fields.insert("name".to_string(), "Enter the customer's name.".to_string());
         return Err(CommandError::validation_for("customer", fields));
     }
 
-    state.with_connection(|conn| {
-        customers::upsert_within(conn, &customer)?;
-        customers::get(conn, &customer.name)
-    })
+    let saved = state
+        .with_connection(|session| async move {
+            customers::upsert_within(&session.conn, &customer).await?;
+            customers::get(&session.conn, &customer.name).await
+        })
+        .await?;
+
+    crate::cloud::sync_state::mark_dirty(&app);
+    crate::log_info!("update_customer: saved '{}'", saved.name);
+    Ok(saved)
 }
 
 #[derive(Deserialize)]
@@ -233,8 +355,24 @@ pub async fn open_bill_invoice(
     state: State<'_, AppState>,
     request: Request<'_>,
 ) -> Result<(), CommandError> {
+    crate::log_info!("-> open_bill_invoice");
+    let result = apply_open_bill_invoice(app, state, request).await;
+    crate::commands::log_outcome("open_bill_invoice", &result);
+    result
+}
+
+async fn apply_open_bill_invoice(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: Request<'_>,
+) -> Result<(), CommandError> {
     let meta = invoice_meta(&request)?;
     let bytes = body_bytes(&request);
+    crate::log_debug!(
+        "open_bill_invoice: '{}' ({} bytes)",
+        meta.file_name,
+        bytes.len()
+    );
     if bytes.is_empty() {
         return Err(CommandError::io("The invoice's contents did not arrive."));
     }
@@ -262,6 +400,16 @@ pub async fn save_bill_invoice_copy(
     app: AppHandle,
     request: Request<'_>,
 ) -> Result<Option<String>, CommandError> {
+    crate::log_info!("-> save_bill_invoice_copy");
+    let result = apply_save_bill_invoice_copy(app, request).await;
+    crate::commands::log_outcome("save_bill_invoice_copy", &result);
+    result
+}
+
+async fn apply_save_bill_invoice_copy(
+    app: AppHandle,
+    request: Request<'_>,
+) -> Result<Option<String>, CommandError> {
     let meta = invoice_meta(&request)?;
     let bytes = body_bytes(&request);
     if bytes.is_empty() {
@@ -275,6 +423,7 @@ pub async fn save_bill_invoice_copy(
         .blocking_save_file();
 
     let Some(selected) = chosen else {
+        crate::log_info!("save_bill_invoice_copy: cancelled");
         return Ok(None);
     };
 
@@ -289,7 +438,6 @@ pub async fn save_bill_invoice_copy(
         )
     })?;
 
+    crate::log_info!("save_bill_invoice_copy: saved to {}", destination.display());
     Ok(Some(destination.to_string_lossy().to_string()))
 }
-
-// وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

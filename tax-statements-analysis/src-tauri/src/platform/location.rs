@@ -38,14 +38,20 @@ const SYNC_ENV_VARS: [&str; 3] = ["OneDrive", "OneDriveCommercial", "OneDriveCon
 
 pub fn classify(path: &Path) -> Option<LocationRisk> {
     if is_inside_synced_folder(path) {
+        crate::log_debug!(
+            "location::classify: {} is inside a cloud-synced folder",
+            path.display()
+        );
         return Some(LocationRisk::CloudSynced);
     }
 
-    match drive_type(path)? {
+    let risk = match drive_type(path)? {
         DRIVE_REMOVABLE => Some(LocationRisk::Removable),
         DRIVE_REMOTE => Some(LocationRisk::Network),
         _ => None,
-    }
+    };
+    crate::log_debug!("location::classify: {} -> {risk:?}", path.display());
+    risk
 }
 
 fn is_inside_synced_folder(path: &Path) -> bool {

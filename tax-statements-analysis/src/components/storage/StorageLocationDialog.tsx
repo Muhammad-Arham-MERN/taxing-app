@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SecretsStatus } from "@/components/onboarding/SecretsStatus";
 import type { StorageRepository } from "@/data/repositories";
 import type { CarryAcrossChoice, LocationRisk } from "@/domain/types";
 
@@ -185,6 +186,10 @@ export function StorageLocationDialog({
             {error}
           </p>
         ) : null}
+
+        {/* The cloud connection details are shown here too, so a deliberate
+            re-paste is one click away (FR-049). */}
+        {!deciding ? <SecretsStatus /> : null}
 
         <DialogFooter>
           <Button

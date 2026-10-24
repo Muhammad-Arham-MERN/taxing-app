@@ -1,12 +1,16 @@
 // بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيمِ
 //! Where the records live: asking the practitioner to choose, judging a location
 //! before accepting it, and moving records between locations.
+//!
+//! Module 4 makes these commands `async` and runs everything through the Turso
+//! engine (research R3); the carry-across now also moves the local
+//! `attachments/` folder beside the store (data-model §5).
 
 use crate::commands::error::CommandError;
 use crate::platform::{self, LocationRisk};
 use crate::settings::{self, LocationKind, StorageLocation, StorageState};
-use crate::state::{AppState, StoreSession};
-use crate::store::{self, carry, Verification};
+use crate::state::{self, AppState};
+use crate::store::{self, carry, StoreError, Verification};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
@@ -56,24 +60,40 @@ impl LocationAssessment {
 /// is a *state* the practitioner is told about and can act on, not an error
 /// (FR-015, FR-023, FR-025, FR-056).
 #[tauri::command]
-pub fn get_storage_state(state: State<'_, AppState>) -> StorageState {
-    let Ok(guard) = state.inner.lock() else {
-        return StorageState::none();
-    };
-
-    StorageState {
+pub async fn get_storage_state(state: State<'_, AppState>) -> Result<StorageState, CommandError> {
+    crate::log_info!("-> get_storage_state");
+    let guard = state.inner.lock().await;
+    let result: Result<StorageState, CommandError> = Ok(StorageState {
         chosen: guard.session.is_some(),
         location: guard.location.clone(),
         problem: guard.problem,
+    });
+    if let Ok(ref view) = result {
+        crate::log_debug!(
+            "get_storage_state: chosen={} location={:?} problem={:?}",
+            view.chosen,
+            view.location.as_ref().map(|location| location.path.as_str()),
+            view.problem
+        );
     }
+    crate::commands::log_outcome("get_storage_state", &result);
+    result
 }
 
 /// Open the operating system's folder picker. `null` means the practitioner
 /// cancelled, and nothing must change (FR-014, FR-024).
 #[tauri::command]
 pub async fn pick_directory(app: AppHandle) -> Result<Option<String>, CommandError> {
+    crate::log_info!("-> pick_directory (opening the folder picker)");
     let picked = app.dialog().file().blocking_pick_folder();
-    Ok(path_of(picked))
+    let result = Ok(path_of(picked));
+    if let Ok(Some(ref path)) = result {
+        crate::log_info!("pick_directory: chose {path}");
+    } else {
+        crate::log_info!("pick_directory: cancelled");
+    }
+    crate::commands::log_outcome("pick_directory", &result);
+    result
 }
 
 /// Open the operating system's file picker so the practitioner can point at a
@@ -81,8 +101,16 @@ pub async fn pick_directory(app: AppHandle) -> Result<Option<String>, CommandErr
 /// rebuilt (FR-057).
 #[tauri::command]
 pub async fn pick_store_file(app: AppHandle) -> Result<Option<String>, CommandError> {
+    crate::log_info!("-> pick_store_file (opening the file picker)");
     let picked = app.dialog().file().blocking_pick_file();
-    Ok(path_of(picked))
+    let result = Ok(path_of(picked));
+    if let Ok(Some(ref path)) = result {
+        crate::log_info!("pick_store_file: chose {path}");
+    } else {
+        crate::log_info!("pick_store_file: cancelled");
+    }
+    crate::commands::log_outcome("pick_store_file", &result);
+    result
 }
 
 fn path_of(picked: Option<tauri_plugin_dialog::FilePath>) -> Option<String> {
@@ -96,24 +124,33 @@ fn path_of(picked: Option<tauri_plugin_dialog::FilePath>) -> Option<String> {
 /// which is what guarantees a rejected file is left byte-for-byte unchanged
 /// (FR-060, SC-020).
 #[tauri::command]
-pub fn assess_location(kind: LocationKind, path: String) -> LocationAssessment {
+pub async fn assess_location(kind: LocationKind, path: String) -> LocationAssessment {
+    crate::log_info!("-> assess_location kind={kind:?} path={path}");
     let target = PathBuf::from(&path);
 
-    match kind {
-        LocationKind::File => assess_file(&target),
-        LocationKind::Directory => assess_directory(&target),
-    }
+    let assessment = match kind {
+        LocationKind::File => assess_file(&target).await,
+        LocationKind::Directory => assess_directory(&target).await,
+    };
+    crate::log_info!(
+        "assess_location: acceptable={} warning={:?} empty={} rejection={:?}",
+        assessment.acceptable,
+        assessment.warning,
+        assessment.is_empty_store,
+        assessment.rejection
+    );
+    assessment
 }
 
-fn assess_file(path: &Path) -> LocationAssessment {
-    match store::verify_read_only(path) {
+async fn assess_file(path: &Path) -> LocationAssessment {
+    match store::verify_read_only(path).await {
         Ok(Verification::Ours { empty }) => LocationAssessment::accepted(None, empty),
         Ok(Verification::NotOurs(problem)) => LocationAssessment::rejected(problem_message(problem)),
         Err(error) => LocationAssessment::rejected(error.to_string()),
     }
 }
 
-fn assess_directory(dir: &Path) -> LocationAssessment {
+async fn assess_directory(dir: &Path) -> LocationAssessment {
     if !dir.is_dir() {
         return LocationAssessment::rejected("That is not a folder.");
     }
@@ -126,7 +163,7 @@ fn assess_directory(dir: &Path) -> LocationAssessment {
 
     // A folder that already holds a store is ADOPTED, never overwritten (FR-026).
     if store_path.exists() {
-        return match store::verify_read_only(&store_path) {
+        return match store::verify_read_only(&store_path).await {
             Ok(Verification::Ours { empty }) => LocationAssessment::accepted(warning, empty),
             Ok(Verification::NotOurs(problem)) => LocationAssessment {
                 warning,
@@ -183,31 +220,66 @@ pub async fn set_storage_location(
     path: String,
     carry_across: Option<String>,
 ) -> Result<StorageState, CommandError> {
+    crate::log_info!(
+        "-> set_storage_location kind={kind:?} path={path} carry_across={carry_across:?}"
+    );
+    let result = apply_storage_location(app, state, kind, path, carry_across).await;
+    crate::commands::log_outcome("set_storage_location", &result);
+    result
+}
+
+async fn apply_storage_location(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    kind: LocationKind,
+    path: String,
+    carry_across: Option<String>,
+) -> Result<StorageState, CommandError> {
     let location = StorageLocation { kind, path };
     let target = settings::store_file_path(&location);
+    crate::log_debug!("set_storage_location: the store file is {}", target.display());
 
-    let mut guard = state
-        .inner
-        .lock()
-        .map_err(|_| CommandError::io("The store is busy. Try again."))?;
+    let creating = kind == LocationKind::Directory && !target.exists();
 
-    let mut new_conn = open_destination(kind, &target, &location)?;
+    let mut guard = state.inner.lock().await;
+
+    // Create the store **through the engine that will be used** when the chosen
+    // folder holds none yet; otherwise open and verify what is already there. The
+    // schema must become the store's own content, or the first sync replaces it
+    // (state::create_at).
+    let session = if creating {
+        crate::log_info!("set_storage_location: creating a new store file");
+        state::create_at(&target, &location)
+            .await
+            .map_err(|error| {
+                CommandError::from(StoreError::Unwritable(format!(
+                    "A records file could not be created in {}: {error}",
+                    location.path
+                )))
+            })?
+    } else {
+        state::open_at(&target, &location, &state.cache)
+            .await
+            .map_err(CommandError::from)?
+    };
 
     let bringing = carry_across.as_deref() == Some(CARRY_BRING);
-    let previous = guard
-        .session
-        .as_ref()
-        .map(|session| settings::store_file_path(&session.location));
+    crate::log_info!("set_storage_location: bring existing records = {bringing}");
+    let previous_store_file = guard.session.as_ref().map(|session| session.store_file());
 
     if bringing {
-        if let Some(previous_path) = previous {
+        if let Some(previous_path) = previous_store_file {
             if previous_path != target && previous_path.exists() {
-                if let Err(error) = carry::carry_from(&mut new_conn, &previous_path) {
+                if let Err(error) = carry::carry_from(&session.conn, &target, &previous_path).await {
                     // Report honestly how far it got, and say that running it
                     // again finishes the job — which is true because records
                     // already present are skipped (FR-021, FR-063).
-                    let remaining = carry::remaining(&new_conn, &previous_path).unwrap_or(0);
-                    let total = carry::statement_count(&previous_path).unwrap_or(remaining);
+                    let remaining = carry::remaining(&session.conn, &previous_path)
+                        .await
+                        .unwrap_or(0);
+                    let total = carry::statement_count(&previous_path)
+                        .await
+                        .unwrap_or(remaining);
                     return Err(CommandError::carry_interrupted(
                         total.saturating_sub(remaining),
                         remaining,
@@ -222,12 +294,32 @@ pub async fn set_storage_location(
         }
     }
 
+    // A brand-new store's schema and identity stamp are **local content**, and the
+    // sync engine treats the cloud as the source of truth for the database. Until
+    // this store has been pushed once, its content is not in the cloud's history,
+    // and the first pull would reconcile the store *down* to the cloud's (empty)
+    // state — losing the schema and the stamp. Publish it now, before any pull can
+    // run (research R2; the outcome of the push is still reported on the next
+    // explicit Push).
+    if creating {
+        if let Some(db) = session.engine.synced() {
+            match crate::cloud::push(db).await {
+                Ok(()) => {
+                    crate::cloud::sync_state::clear_dirty(&app);
+                    crate::log_info!("set_storage_location: the new store is published to the cloud");
+                }
+                Err(error) => crate::log_warn!(
+                    "set_storage_location: the new store could not be published yet — it stays \
+                     local and Pulls stay paused until it is: {error}"
+                ),
+            }
+        }
+    }
+
     settings::write_location(&app, &location).map_err(CommandError::io)?;
 
-    guard.session = Some(StoreSession {
-        conn: new_conn,
-        location: location.clone(),
-    });
+    crate::log_info!("set_storage_location: the new location is committed");
+    guard.session = Some(session);
     guard.location = Some(location.clone());
     guard.problem = None;
 
@@ -237,28 +329,3 @@ pub async fn set_storage_location(
         problem: None,
     })
 }
-
-/// Open the destination store, creating it inside a chosen folder when it is not
-/// there yet, or verifying an existing file before adopting it (FR-016, FR-062).
-fn open_destination(
-    kind: LocationKind,
-    target: &Path,
-    location: &StorageLocation,
-) -> Result<rusqlite::Connection, CommandError> {
-    match kind {
-        LocationKind::Directory => {
-            if !target.exists() {
-                carry::create_store(target, env!("CARGO_PKG_VERSION")).map_err(|error| {
-                    CommandError::from(store::StoreError::Unwritable(format!(
-                        "A records file could not be created in {}: {error}",
-                        location.path
-                    )))
-                })?;
-            }
-            store::open_existing(target).map_err(CommandError::from)
-        }
-        LocationKind::File => store::open_existing(target).map_err(CommandError::from),
-    }
-}
-
-// وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

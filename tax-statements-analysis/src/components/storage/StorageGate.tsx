@@ -71,7 +71,7 @@ export function StorageGate({ state, onChoose }: StorageGateProps) {
 
       <div className="mt-6 flex justify-center">
         <Button type="button" size="lg" onClick={onChoose}>
-          Choose Storage Directory
+          Storage Directory
         </Button>
       </div>
     </section>

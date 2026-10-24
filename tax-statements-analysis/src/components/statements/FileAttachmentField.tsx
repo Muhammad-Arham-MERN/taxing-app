@@ -45,6 +45,7 @@ export function FileAttachmentField({
     onFileNameChange(file.name);
     onFileSelected?.({
       fileName: file.name,
+      contentType: file.type || undefined,
       bytes: new Uint8Array(await file.arrayBuffer()),
     });
   }

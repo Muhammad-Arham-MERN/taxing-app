@@ -8,17 +8,21 @@
 //! decimal numbers — see Tauri's "Accessing Raw Request", and research R13.
 //! When there is no file, the call is ordinary JSON, because there is nothing to
 //! protect.
+//!
+//! Module 4 makes every command `async` (research R3); names, arguments and
+//! results are unchanged.
 
 use crate::commands::error::CommandError;
+use crate::files;
 use crate::state::AppState;
-use crate::store::attachments::AttachmentPayload;
+use crate::store::object_cache::Scope;
 use crate::store::statements::{
     self, AttachmentAction, NewStatement, Statement, StatementUpdate,
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use tauri::ipc::{InvokeBody, Request};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// Where the statement's own fields travel when the body is occupied by a file.
 const META_HEADER: &str = "x-statement-meta";
@@ -103,6 +107,8 @@ fn json_body(request: &Request<'_>) -> serde_json::Value {
 struct CreateMeta {
     input: NewStatement,
     file_name: Option<String>,
+    #[serde(default)]
+    content_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -115,17 +121,35 @@ struct CreateJson {
 /// Record a statement. Resolves only once the write has completed, so the form
 /// can never report success for a statement that was not stored (FR-001, FR-005).
 #[tauri::command]
-pub fn create_statement(
+pub async fn create_statement(
+    app: AppHandle,
     state: State<'_, AppState>,
     request: Request<'_>,
 ) -> Result<Statement, CommandError> {
-    let (input, attachment) = if is_raw(&request) {
+    crate::log_info!("-> create_statement");
+    let result = apply_create_statement(app, state, request).await;
+    crate::commands::log_outcome("create_statement", &result);
+    result
+}
+
+async fn apply_create_statement(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: Request<'_>,
+) -> Result<Statement, CommandError> {
+    let config = state.object_storage();
+
+    // Parse the request first, but **do not** move the file's bytes yet: the
+    // values are checked below, and a rejected statement must not leave an
+    // orphaned object in the store or in Oracle.
+    let (input, raw_file) = if is_raw(&request) {
         let meta: CreateMeta = meta_from(&request)?;
-        let file_name = meta.file_name.clone();
-        (meta.input, file_name.map(|name| AttachmentPayload {
-            file_name: name,
-            bytes: body_bytes(&request),
-        }))
+        let bytes = body_bytes(&request);
+        (
+            meta.input,
+            meta.file_name
+                .map(|name| (name, meta.content_type, bytes)),
+        )
     } else {
         let json: CreateJson = serde_json::from_value(json_body(&request)).map_err(|error| {
             CommandError::io(format!("The statement could not be read: {error}"))
@@ -133,24 +157,71 @@ pub fn create_statement(
         (json.input, None)
     };
 
+    crate::log_info!(
+        "create_statement: {} statement '{}' amount={}{}",
+        input.kind,
+        input.nature,
+        input.amount,
+        if raw_file.is_some() { ", with a file" } else { "" }
+    );
+
     let fields = problems(&input.date, &input.kind, &input.nature, input.amount);
     if !fields.is_empty() {
+        crate::log_warn!(
+            "create_statement: validation failed on {:?}",
+            fields.keys().collect::<Vec<_>>()
+        );
         return Err(CommandError::validation(fields));
     }
 
-    state.with_connection(|conn| statements::create(conn, &input, attachment.as_ref()))
+    // Valid. Now record the file (cache-first) and keep its reference.
+    let attachment = match raw_file {
+        Some((name, content_type, bytes)) => Some(
+            files::store_file(
+                config.as_ref(),
+                &state.cache,
+                Scope::Statement,
+                &name,
+                content_type.as_deref(),
+                &bytes,
+            )
+            .await?,
+        ),
+        None => None,
+    };
+
+    let created = state
+        .with_connection(|session| async move {
+            statements::create(&session.conn, &input, attachment.as_ref()).await
+        })
+        .await?;
+
+    // There are now un-pushed changes on this machine (R8, FR-025).
+    crate::cloud::sync_state::mark_dirty(&app);
+    crate::log_info!("create_statement: stored as {}", created.id);
+    Ok(created)
 }
 
 /// Every statement dated inside the range, newest first. Carries file **names**
 /// only — no attachment content is read at all, however large the files are
 /// (FR-027, FR-029, SC-011).
 #[tauri::command]
-pub fn list_statements(
+pub async fn list_statements(
     state: State<'_, AppState>,
     from: String,
     to: String,
 ) -> Result<Vec<Statement>, CommandError> {
-    state.with_connection(|conn| statements::list_range(conn, &from, &to))
+    crate::log_info!("-> list_statements from={from} to={to}");
+    let result = state
+        .with_connection(|session| async move {
+            statements::list_range(&session.conn, &from, &to).await
+        })
+        .await;
+    if let Ok(ref statements) = result {
+        crate::log_debug!("list_statements: {} returned", statements.len());
+    }
+    crate::commands::log_outcome("list_statements", &result);
+    result
 }
 
 #[derive(Deserialize)]
@@ -166,10 +237,24 @@ struct UpdateJson {
 /// As with creation: a replacement file arrives as the raw body with the edit in
 /// the header, so its contents are never JSON-encoded.
 #[tauri::command]
-pub fn update_statement(
+pub async fn update_statement(
+    app: AppHandle,
     state: State<'_, AppState>,
     request: Request<'_>,
 ) -> Result<Statement, CommandError> {
+    crate::log_info!("-> update_statement");
+    let result = apply_update_statement(app, state, request).await;
+    crate::commands::log_outcome("update_statement", &result);
+    result
+}
+
+async fn apply_update_statement(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: Request<'_>,
+) -> Result<Statement, CommandError> {
+    let config = state.object_storage();
+
     let mut update: StatementUpdate = if is_raw(&request) {
         meta_from::<UpdateJson>(&request)?.update
     } else {
@@ -178,16 +263,8 @@ pub fn update_statement(
             .update
     };
 
-    // A replacement file's contents arrived in the raw body, never in the meta.
-    if let AttachmentAction::Replace { bytes, .. } = &mut update.attachment {
-        let incoming = body_bytes(&request);
-        if incoming.is_empty() {
-            return Err(CommandError::io(
-                "The replacement file's contents did not arrive with the edit.",
-            ));
-        }
-        *bytes = incoming;
-    }
+    // Validate before touching the file, so a rejected edit cannot leave an
+    // orphaned object behind (see the note in `apply_create_statement`).
     let fields = problems(
         &update.date,
         &update.kind,
@@ -195,10 +272,93 @@ pub fn update_statement(
         update.amount,
     );
     if !fields.is_empty() {
+        crate::log_warn!(
+            "update_statement: validation failed on {:?}",
+            fields.keys().collect::<Vec<_>>()
+        );
         return Err(CommandError::validation(fields));
     }
 
-    state.with_connection(|conn| statements::update(conn, &update))
+    // A replacement file's contents arrived in the raw body, never in the meta.
+    // They are written to the object store (cache first) here, and the reference
+    // the store records is returned.
+    if let AttachmentAction::Replace {
+        file_name,
+        content_type,
+        reference,
+    } = &mut update.attachment
+    {
+        let incoming = body_bytes(&request);
+        if incoming.is_empty() {
+            return Err(CommandError::io(
+                "The replacement file's contents did not arrive with the edit.",
+            ));
+        }
+        *reference = Some(
+            files::store_file(
+                config.as_ref(),
+                &state.cache,
+                Scope::Statement,
+                file_name,
+                content_type.as_deref(),
+                &incoming,
+            )
+            .await?,
+        );
+    }
+
+    crate::log_info!("update_statement: correcting statement {}", update.id);
+    let updated = state
+        .with_connection(|session| async move {
+            statements::update(&session.conn, &update).await
+        })
+        .await?;
+
+    crate::cloud::sync_state::mark_dirty(&app);
+    crate::log_info!("update_statement: saved {}", updated.id);
+    Ok(updated)
 }
 
-// وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ
+/// Delete a statement and its attachment (client request). The practitioner's
+/// confirmation is a UI responsibility; this removes it once invoked.
+#[tauri::command]
+pub async fn delete_statement(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), CommandError> {
+    crate::log_info!("-> delete_statement {id}");
+    let result = apply_delete_statement(app, state, id).await;
+    crate::commands::log_outcome("delete_statement", &result);
+    result
+}
+
+async fn apply_delete_statement(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), CommandError> {
+    crate::log_info!("delete_statement: removing {id}");
+    let config = state.object_storage();
+
+    // Read the file reference first: once the statement is gone its attachment
+    // row cascades away and the object key would be lost.
+    let lookup_id = id.clone();
+    let reference = state
+        .with_connection(|session| async move {
+            crate::store::attachments::reference_opt(&session.conn, &lookup_id).await
+        })
+        .await?;
+
+    state
+        .with_connection(|session| async move { statements::delete(&session.conn, &id).await })
+        .await?;
+
+    // The bytes go too: the local cache row and (best-effort) the Oracle object.
+    if let Some(reference) = reference {
+        files::remove_object(config.as_ref(), &state.cache, &reference.object_key).await;
+    }
+
+    crate::cloud::sync_state::mark_dirty(&app);
+    Ok(())
+}

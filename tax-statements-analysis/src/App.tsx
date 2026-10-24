@@ -1,19 +1,26 @@
 // بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيمِ
 import { useEffect, useMemo, useState } from "react";
+import { BackupReminderDialog } from "@/components/layout/BackupReminderDialog";
 import { RevealHeader } from "@/components/layout/RevealHeader";
 import { DataProvider, useRepositories } from "@/components/providers/DataProvider";
 import { THEME_STORAGE_KEY, ThemeProvider } from "@/components/providers/ThemeProvider";
-import { StorageGate } from "@/components/storage/StorageGate";
+import { SetupGate } from "@/components/onboarding/SetupGate";
+import { CloseWarningDialog } from "@/components/cloud/CloseWarningDialog";
 import { StorageLocationDialog } from "@/components/storage/StorageLocationDialog";
 import { CreateBillForm } from "@/components/bills/CreateBillForm";
 import { ViewBillsTab } from "@/components/bills/ViewBillsTab";
+import { CreateClientForm } from "@/components/clients/CreateClientForm";
+import { ViewClientsTab } from "@/components/clients/ViewClientsTab";
 import { CreateStatementForm } from "@/components/statements/CreateStatementForm";
 import { createDefaultFilter, DateRangeFilter } from "@/components/statements/DateRangeFilter";
 import { StatementsTable } from "@/components/statements/StatementsTable";
 import { SummaryFooter } from "@/components/statements/SummaryFooter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Toaster } from "@/components/ui/toast";
 import { HEADER_IDENTITY } from "@/domain/identity";
 import { isRangeValid, summarize } from "@/domain/summary";
+import { useBackupReminder } from "@/hooks/useBackupReminder";
+import { useCloudSync } from "@/hooks/useCloudSync";
 import type { Statement, StatementFilter, StorageState } from "@/domain/types";
 
 const EMPTY_STATE: StorageState = { chosen: false, location: null, problem: null };
@@ -85,6 +92,13 @@ function AppShell() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [chooserOpen, setChooserOpen] = useState(false);
 
+  // Automatic pulls refresh the installed lists through the existing refreshKey
+  // (R9, FR-023): a background pull never touches an in-progress form, it only
+  // reloads the tables.
+  const bumpRefresh = () => setRefreshKey((key) => key + 1);
+  const cloud = useCloudSync({ onPulled: bumpRefresh });
+  const backup = useBackupReminder();
+
   useEffect(() => {
     if (storageState === null) {
       void refreshStorage();
@@ -99,14 +113,19 @@ function AppShell() {
       <RevealHeader
         profile={HEADER_IDENTITY}
         onChooseStorage={() => setChooserOpen(true)}
+        cloud={ready ? cloud : null}
       />
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
-        {ready ? (
+        <SetupGate
+          storageState={storageState ?? EMPTY_STATE}
+          onChooseStorage={() => setChooserOpen(true)}
+        >
           <Tabs defaultValue="create-statement" className="items-center gap-8">
-            {/* Two labelled groups — Statements and Bills — separated by a gap
-                rather than a rule (FR-001–FR-003); the statements panels are
-                unchanged. */}
+            {/* Three labelled groups — Statements, Bills and Clients — separated
+                by a gap rather than a rule (FR-001–FR-003). Each group is just a
+                label and its own TabsList; Radix treats the triggers as one
+                shared value. */}
             <div
               data-slot="nav-groups"
               className="flex flex-wrap items-start justify-center gap-10"
@@ -130,36 +149,43 @@ function AppShell() {
                   <TabsTrigger value="view-bills">View</TabsTrigger>
                 </TabsList>
               </div>
+
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Clients
+                </span>
+                <TabsList>
+                  <TabsTrigger value="create-client">Create</TabsTrigger>
+                  <TabsTrigger value="view-clients">View</TabsTrigger>
+                </TabsList>
+              </div>
             </div>
 
             <TabsContent value="create-statement" className="tab-content-enter w-full">
-              <CreateStatementForm onCreated={() => setRefreshKey((key) => key + 1)} />
+              <CreateStatementForm onCreated={bumpRefresh} />
             </TabsContent>
 
             <TabsContent value="view-statements" className="tab-content-enter w-full">
-              <ViewTab
-                refreshKey={refreshKey}
-                onChanged={() => setRefreshKey((key) => key + 1)}
-              />
+              <ViewTab refreshKey={refreshKey} onChanged={bumpRefresh} />
             </TabsContent>
 
             <TabsContent value="create-bill" className="tab-content-enter w-full">
-              <CreateBillForm onCreated={() => setRefreshKey((key) => key + 1)} />
+              <CreateBillForm onCreated={bumpRefresh} />
             </TabsContent>
 
             <TabsContent value="view-bills" className="tab-content-enter w-full">
-              <ViewBillsTab
-                refreshKey={refreshKey}
-                onChanged={() => setRefreshKey((key) => key + 1)}
-              />
+              <ViewBillsTab refreshKey={refreshKey} onChanged={bumpRefresh} />
+            </TabsContent>
+
+            <TabsContent value="create-client" className="tab-content-enter w-full">
+              <CreateClientForm onCreated={bumpRefresh} />
+            </TabsContent>
+
+            <TabsContent value="view-clients" className="tab-content-enter w-full">
+              <ViewClientsTab refreshKey={refreshKey} onChanged={bumpRefresh} />
             </TabsContent>
           </Tabs>
-        ) : (
-          <StorageGate
-            state={storageState ?? EMPTY_STATE}
-            onChoose={() => setChooserOpen(true)}
-          />
-        )}
+        </SetupGate>
       </main>
 
       <StorageLocationDialog
@@ -169,7 +195,29 @@ function AppShell() {
         hasCurrentStore={ready}
         onChanged={() => {
           void refreshStorage();
-          setRefreshKey((key) => key + 1);
+          bumpRefresh();
+        }}
+      />
+
+      {/* The close-time safeguard: warns, offers to push, and never traps the
+          practitioner (FR-025–FR-028). */}
+      <CloseWarningDialog
+        open={cloud.closeWarningOpen}
+        phase={cloud.phase}
+        outcome={cloud.outcome}
+        onPushThenClose={() => void cloud.pushThenClose()}
+        onCloseAnyway={() => void cloud.closeAnyway()}
+        onCancel={cloud.cancelClose}
+      />
+
+      {/* Once a calendar month, a nudge to back up the database file (client
+          request). Only once a store exists, so the advice is accurate. */}
+      <BackupReminderDialog
+        open={backup.open && ready}
+        onOpenChange={(open) => {
+          if (!open) {
+            backup.dismiss();
+          }
         }}
       />
     </div>
@@ -182,6 +230,8 @@ export default function App() {
       <DataProvider>
         <AppShell />
       </DataProvider>
+      {/* Cloud outcomes surface here, so the header keeps its shape (FR-033). */}
+      <Toaster />
     </ThemeProvider>
   );
 }

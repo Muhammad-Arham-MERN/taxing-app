@@ -8,7 +8,12 @@ import {
 } from "react";
 import type {
   BillRepository,
+  CategoryRepository,
+  ClientRecordRepository,
+  ClientRepository,
+  CloudRepository,
   CustomerRepository,
+  SetupRepository,
   StatementRepository,
   StorageRepository,
 } from "@/data/repositories";
@@ -19,7 +24,12 @@ import {
 } from "@/data/in-memory";
 import {
   TauriBillRepository,
+  TauriCategoryRepository,
+  TauriClientRecordRepository,
+  TauriClientRepository,
+  TauriCloudRepository,
   TauriCustomerRepository,
+  TauriSetupRepository,
   TauriStatementRepository,
   TauriStorageRepository,
 } from "@/data/tauri";
@@ -30,6 +40,11 @@ interface DataContextValue {
   storage: StorageRepository;
   bills: BillRepository;
   customers: CustomerRepository;
+  clients: ClientRepository;
+  categories: CategoryRepository;
+  clientRecords: ClientRecordRepository;
+  cloud: CloudRepository;
+  setup: SetupRepository;
   /** `null` until the first read of the storage state completes. */
   storageState: StorageState | null;
   refreshStorage: () => Promise<void>;
@@ -52,6 +67,11 @@ function tauriRepositories(): Repositories {
     storage: new TauriStorageRepository(),
     bills: new TauriBillRepository(),
     customers: new TauriCustomerRepository(),
+    clients: new TauriClientRepository(),
+    categories: new TauriCategoryRepository(),
+    clientRecords: new TauriClientRecordRepository(),
+    cloud: new TauriCloudRepository(),
+    setup: new TauriSetupRepository(),
     // The header's details are fixed and are never stored (FR-053), so this
     // remains an in-memory constant even in the running application.
     businessProfile: new InMemoryBusinessProfileRepository(),
@@ -81,6 +101,11 @@ export function DataProvider({
         storage: source.storage,
         bills: source.bills,
         customers: source.customers,
+        clients: source.clients,
+        categories: source.categories,
+        clientRecords: source.clientRecords,
+        cloud: source.cloud,
+        setup: source.setup,
         storageState,
         refreshStorage,
       }}

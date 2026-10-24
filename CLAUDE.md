@@ -4,6 +4,15 @@ This file is generated during init for the selected agent.
 
 You are an expert AI assistant specializing in Spec-Driven Development (SDD). Your primary goal is to work with the architext to build products.
 
+## Project Map — READ FIRST (MANDATORY)
+
+`PROJECT_MAP.md` at the repo root is the **single entry point ("lobby") for the entire project**. It maps every folder, file and function with references and maintenance protocol.
+
+- **Before starting any task**, read `PROJECT_MAP.md` instead of scanning the whole codebase. It is the authoritative index.
+- **After any change that adds/renames/moves/deletes** a folder, file, function, Tauri command, schema element or repository interface, you **MUST update `PROJECT_MAP.md` in the same change** (see its §10 "Maintenance Protocol" which lists exactly which sections to touch).
+- **Bump the "Last verified" date** in `PROJECT_MAP.md` after editing it.
+- If `PROJECT_MAP.md` and the code disagree, trust the code and fix the map.
+
 ## Task context
 
 **Your Surface:** You operate on a project level, providing guidance to users and executing development tasks via a defined set of tools.
@@ -116,6 +125,7 @@ You are not expected to solve every problem autonomously. You MUST invoke the us
 4.  **Completion Checkpoint:** After completing major milestones, summarize what was done and confirm next steps. 
 
 ## Default policies (must follow)
+- Read `PROJECT_MAP.md` before exploring the codebase, and update it whenever structure (folders, files, functions, commands, schema, repository interfaces) changes.
 - Clarify and plan first - keep business understanding separate from technical plan and carefully architect and implement.
 - Do not invent APIs, data, or contracts; ask targeted clarifiers if missing.
 - Never hardcode secrets or tokens; use `.env` and docs.
@@ -202,6 +212,11 @@ Wait for consent; never auto-create ADRs. Group related decisions (stacks, authe
 - SQLite store schema v1→v2, additive migration on open: new `customers`, `bills`, `bill_items` tables plus a monotonic `next_invoice_no` counter in `app_meta`; amounts integer paisa; customer key is `name COLLATE NOCASE` — feature `003-bills-invoice`
 - New Tauri commands: `create_bill`, `list_bills`, `get_bill`, `update_bill`, `delete_bill`, `list_customers`, `open_bill_invoice`, `save_bill_invoice_copy` — feature `003-bills-invoice`
 - Location change carry-across extended to customers → bills → line items + invoice counter — feature `003-bills-invoice`
+- Rust 1.77.2+ (edition 2021) with Tauri v2 for the backend; TypeScript 5.x on React 19 for the frontend. No language change — but the backend gains an async runtime surface. (004-cloud-sync)
+- The practitioner's one store file, now a **Turso local-first database** (`tax-statements.sqlite`; location still remembered in `settings.json`). Schema unchanged in shape (statements, customers, bills, bill_items, bill_wallets, app_meta) except that **attachment bytes move out** to a local `attachments/` folder beside the store (R5); the store keeps an attachment reference only. Amounts stay integer paisa. A small local `sync-state.json` (beside `settings.json`) records whether there are un-pushed changes and when the last successful push was. The cloud **secrets** are **not packaged in the installer**; they are pasted once at onboarding and held only in **Windows Credential Manager**, and they gate the whole application alongside the storage choice. (004-cloud-sync)
+- Turso Sync via the `turso` crate (`sync` feature) + `tokio`; the store is local-first with explicit `push()`/`pull()` and `bootstrap_if_empty(false)`; conflicts use the store's native **last-push-wins** (no custom reconciliation); `reqwest` for the Usage API; the Windows Credential Manager is reached directly through `windows-sys` (`Win32_Security_Credentials`) rather than a wrapper crate — feature `004-cloud-sync`
+- Module 4 implementation notes: every store module and every store-touching command is `async`; `AppState` holds a `tokio::sync::Mutex` and a `StoreEngine::{Synced, Local}` enum; `AppState::with_connection` hands an owned `StoreHandle` (cloned `Connection`, the local `attachments/` folder, and the optional synced handle) to the closure so the lock is held across the await without a higher-ranked lifetime. The R1 engine-parity spike (`sync-poc/src/bin/parity_spike.rs`) proved `STRICT`, `PRAGMA application_id`/`user_version` read+write, `CHECK`/`NOT NULL`/`UNIQUE`, `COLLATE NOCASE`, FK cascade, `GROUP_CONCAT`/`SUM` and a round trip all behave — feature `004-cloud-sync`
+- The backend `async` command surface is a Tauri constraint worth remembering: any `#[tauri::command] async fn` that takes a reference-bearing argument (e.g. `State<'_, T>`) **must** return a `Result`, and a closure passed to `AppState::with_connection` must not need a higher-ranked lifetime — hence the owned `StoreHandle`. — feature `004-cloud-sync`
 
 - Rust 1.77.2+ (edition 2021) with Tauri v2 — backend — feature `002-statements-persistence`
 - SQLite via `rusqlite` (`bundled`, statically linked): one self-contained store file at a practitioner-chosen location; rollback journal, not WAL, so the `.db` alone is a copyable backup — feature `002-statements-persistence`
@@ -210,7 +225,7 @@ Wait for consent; never auto-create ADRs. Group related decisions (stacks, authe
 - `windows-sys` for drive-type and cloud-sync-root classification — feature `002-statements-persistence`
 - Chosen location remembered in `settings.json` under `app.path().app_config_dir()` — feature `002-statements-persistence`
 
-**Build prerequisite (Module 2)**: `rusqlite`'s `bundled` feature compiles SQLite from C source, so the build machine needs the MSVC build tools (C++). The shipped application needs nothing installed.
+**Build prerequisite (historical — Module 2)**: the old `rusqlite` (`bundled`) engine compiled SQLite from C source, so the build machine needed the MSVC build tools (C++). Module 4 removed `rusqlite` in favour of the pure-Rust `turso` engine, so the C-compiler prerequisite is **gone**. The shipped application needs nothing installed.
 
 - TypeScript 5.x + React 19 + Vite — feature `001-statements-entry-view`
 - Tauri v2 desktop shell (Rust edition 2021) — feature `001-statements-entry-view`
@@ -218,10 +233,11 @@ Wait for consent; never auto-create ADRs. Group related decisions (stacks, authe
 - react-hook-form + zod; date-fns + react-day-picker; TanStack Table — feature `001-statements-entry-view`
 - In-memory repository seam (`src/data/in-memory.ts`) — retained as the frontend test fixture only; the running application uses `src/data/tauri.ts`
 
-**Last updated**: 2026-09-19
+**Last updated**: 2026-10-17
 
 ## Basic Project Structure
 
+- `PROJECT_MAP.md` — **The project lobby: full folder/file/function index; read first, keep in sync**
 - `.specify/memory/constitution.md` — Project principles
 - `specs/<feature>/spec.md` — Feature requirements
 - `specs/<feature>/plan.md` — Architecture decisions

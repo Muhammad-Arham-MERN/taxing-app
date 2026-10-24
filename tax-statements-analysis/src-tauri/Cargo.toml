@@ -24,12 +24,44 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# SQLite is compiled from source and linked into the executable (research R1), so
-# the shipped application depends on no external library and the practitioner
-# installs nothing. The `blob` feature enables the incremental BLOB I/O used to
-# stream large attachments without materialising them in memory (research R5).
-rusqlite = { version = "0.40", features = ["bundled", "blob"] }
 uuid = { version = "1", features = ["v4"] }
+
+# The store engine (Module 4, research R2). The whole store is now a local-first
+# Turso database: every read and write stays local and works offline, and the
+# `sync` feature adds the `push()`/`pull()` that moves changes through the one
+# central cloud copy. `default-features = false` keeps the build to what the
+# application needs. Being pure Rust, it also removes the C-compiler prerequisite
+# the previous `rusqlite` (`bundled`) engine imposed on the build machine.
+turso = { version = "0.8", default-features = false, features = ["sync"] }
+
+# The async runtime the Turso crate is written against and on which Tauri v2
+# already runs its commands. Tauri brings `tokio` transitively, but the store
+# layer names it directly (the `tokio::sync::Mutex` for `AppState` and the timed
+# background sync task), so it is declared here.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+# The HTTP client behind the Turso Usage API call that feeds the storage gauge
+# (research R11) — the backend's second network caller after the updater. rustls
+# (no OpenSSL) and JSON only.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+
+# The file-bytes module's object store: Oracle Cloud (OCI) exposes an Amazon
+# S3-compatible API, and the official AWS SDK for Rust talks to it directly
+# (path-style endpoint, `force_path_style`). Its default TLS is rustls with the
+# `aws-lc-rs` provider — the same one this application already installs at
+# startup in `lib.rs` — so no OpenSSL is introduced and the process-level
+# `CryptoProvider` keeps working. Credentials are passed explicitly from Windows
+# Credential Manager (see `cloud/object_store.rs`); the AWS_* process environment
+# is never consulted.
+aws-sdk-s3 = "1"
+
+# rustls is not used directly, but two of our dependencies compile it with
+# different crypto providers: `tauri-plugin-updater` enables `ring` while
+# `reqwest` / the Turso sync stack enable `aws-lc-rs`. With both present rustls
+# cannot pick a process-level `CryptoProvider` and panics on the first TLS use.
+# Declaring it here lets us select one explicitly at startup (see `run()` in
+# `lib.rs`); the version unifies with the one already in the tree.
+rustls = "0.23"
 
 # Desktop-only (not mobile): in-app updates. The plugin refuses any release
 # that is not signed by the private key matching the `pubkey` in
@@ -37,13 +69,27 @@ uuid = { version = "1", features = ["v4"] }
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2"
 
-# Windows-only: single-instance enforcement (FR-054) and the drive-type /
-# cloud-sync-root classification behind the risky-location warning (FR-055).
+# Windows-only: single-instance enforcement (FR-054), the drive-type /
+# cloud-sync-root classification behind the risky-location warning (FR-055), and
+# (Module 4) the Windows Credential Manager calls that hold the cloud secrets
+# (research R4). The credentials API is used directly rather than through a
+# wrapper crate, so nothing extra is pulled in for a feature this small.
 [target.'cfg(windows)'.dependencies]
 tauri-plugin-single-instance = "2"
-windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+windows-sys = { version = "0.60", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_Security_Credentials",
+] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+# Faster dev rebuilds. `debug = 1` keeps line tables (breakpoints still land) while
+# dropping the full type/variable debug info — that is what makes every Windows
+# rebuild write a huge PDB during the link. Use `2` for full debugging, `0` for the
+# fastest rebuilds (no debugger). Dependencies rebuild once when this changes.
+[profile.dev]
+debug = 1
+
 [profile.release]
 codegen-units = 1
 lto = true

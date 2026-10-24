@@ -1,0 +1,15 @@
+# بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيمِ
+# Build-speed configuration for local development.
+#
+# `rust-lld` is the LLD linker that ships inside the Rust toolchain itself, so
+# nothing has to be installed. It links this application noticeably faster than
+# the MSVC `link.exe`.
+#
+# This is a cargo *config* file, not the manifest. The flag people often quote,
+# `-C link-arg=-fuse-ld=lld`, does NOT work on the MSVC target: `link.exe` does
+# not understand `-fuse-ld` and silently ignores it (LNK4044).
+#
+# To revert: delete this file (the build then uses the MSVC linker again).
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"

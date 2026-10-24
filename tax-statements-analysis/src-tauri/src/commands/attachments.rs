@@ -3,11 +3,15 @@
 //! of it elsewhere.
 //!
 //! The application ships no viewer of its own: it writes a temporary copy and
-//! lets the practitioner's own applications display it (FR-066).
+//! lets the practitioner's own applications display it (FR-066). Module 4 reads
+//! the bytes from the local `attachments/` vault (research R5, R12) instead of
+//! from a BLOB; the temporary-write/opener/dialog behaviour is unchanged.
 
 use crate::commands::error::{CommandError, ErrorKind};
+use crate::files;
 use crate::state::AppState;
 use crate::store::attachments;
+use crate::store::object_cache::Scope;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -31,9 +35,39 @@ pub async fn open_attachment(
     state: State<'_, AppState>,
     statement_id: String,
 ) -> Result<(), CommandError> {
-    let data = state.with_connection(|conn| attachments::read(conn, &statement_id))?;
+    crate::log_info!("-> open_attachment {statement_id}");
+    let result = apply_open_attachment(app, state, statement_id).await;
+    crate::commands::log_outcome("open_attachment", &result);
+    result
+}
 
-    let path = crate::temp::write_out(&state.run_folder, &data.file_name, &data.bytes)
+async fn apply_open_attachment(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    statement_id: String,
+) -> Result<(), CommandError> {
+    let reference = state
+        .with_connection(|session| async move {
+            attachments::reference(&session.conn, &statement_id).await
+        })
+        .await?;
+
+    let bytes = files::fetch_bytes(
+        state.object_storage().as_ref(),
+        &state.cache,
+        Scope::Statement,
+        &reference.object_key,
+        &reference.file_name,
+        reference.content_type.as_deref(),
+    )
+    .await?;
+
+    crate::log_debug!(
+        "open_attachment: writing '{}' ({} bytes) out to view",
+        reference.file_name,
+        bytes.len()
+    );
+    let path = crate::temp::write_out(&state.run_folder, &reference.file_name, &bytes)
         .map_err(|message| CommandError::new(ErrorKind::AttachmentWriteFailed, message))?;
 
     app.opener()
@@ -62,16 +96,42 @@ pub async fn save_attachment_copy(
     state: State<'_, AppState>,
     statement_id: String,
 ) -> Result<Option<String>, CommandError> {
-    let data = state.with_connection(|conn| attachments::read(conn, &statement_id))?;
+    crate::log_info!("-> save_attachment_copy {statement_id}");
+    let result = apply_save_attachment_copy(app, state, statement_id).await;
+    crate::commands::log_outcome("save_attachment_copy", &result);
+    result
+}
+
+async fn apply_save_attachment_copy(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    statement_id: String,
+) -> Result<Option<String>, CommandError> {
+    let reference = state
+        .with_connection(|session| async move {
+            attachments::reference(&session.conn, &statement_id).await
+        })
+        .await?;
+
+    let bytes = files::fetch_bytes(
+        state.object_storage().as_ref(),
+        &state.cache,
+        Scope::Statement,
+        &reference.object_key,
+        &reference.file_name,
+        reference.content_type.as_deref(),
+    )
+    .await?;
 
     let chosen = app
         .dialog()
         .file()
-        .set_file_name(&data.file_name)
+        .set_file_name(&reference.file_name)
         .blocking_save_file();
 
     let Some(selected) = chosen else {
         // Cancelled: nothing is written anywhere.
+        crate::log_info!("save_attachment_copy: cancelled");
         return Ok(None);
     };
 
@@ -79,14 +139,13 @@ pub async fn save_attachment_copy(
         .into_path()
         .map_err(|error| CommandError::io(format!("That location cannot be used: {error}")))?;
 
-    std::fs::write(&destination, &data.bytes).map_err(|error| {
+    std::fs::write(&destination, &bytes).map_err(|error| {
         CommandError::new(
             ErrorKind::AttachmentWriteFailed,
             format!("The copy could not be written: {error}"),
         )
     })?;
 
+    crate::log_info!("save_attachment_copy: saved to {}", destination.display());
     Ok(Some(destination.to_string_lossy().to_string()))
 }
-
-// وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

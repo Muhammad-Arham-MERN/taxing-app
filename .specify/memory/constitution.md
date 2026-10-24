@@ -59,7 +59,11 @@ Objections to proposed approaches, requirements, or implementations are allowed 
 
 - This constitution supersedes all other development practices for this project.
 - Every file created or edited MUST comply with the Code Standards (Principle I).
+- The project map is the mandatory entry point for all work: agents and developers MUST read `PROJECT_MAP.md` (repo root) before exploring the codebase, and MUST update it in the same change whenever a folder, file, function, Tauri command, schema element, or repository interface is added, renamed, moved, or removed. This keeps the map a truthful lobby for the whole project.
 - Amendments require Developer approval and MUST update the version and amendment date below.
 - Complexity MUST be justified; prefer the smallest viable change, and keep business requirements separate from technical design.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-14 | **Last Amended**: 2026-09-14
+**Version**: 1.1.0 | **Ratified**: 2026-09-14 | **Last Amended**: 2026-10-20
+
+**Amendment log**
+- 1.1.0 (2026-10-20): Added the `PROJECT_MAP.md` read-first-and-keep-in-sync governance rule.
