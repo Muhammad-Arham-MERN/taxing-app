@@ -23,10 +23,19 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useRepositories } from "@/components/providers/DataProvider";
 import { BillItemsEditor } from "@/components/bills/BillItemsEditor";
-import { BillTextField, type BillTextFieldName } from "@/components/bills/BillTextField";
+import { BillTextField } from "@/components/bills/BillTextField";
+import { ClientCombobox } from "@/components/clients/ClientCombobox";
 import { WalletNumbersEditor } from "@/components/bills/WalletNumbersEditor";
 import { NoiseButton } from "@/components/statements/NoiseButton";
 import {
@@ -36,7 +45,7 @@ import {
   type BillFormOutput,
 } from "@/domain/billValidation";
 import { DEFAULT_ACCOUNT_HOLDER, WALLET_PLACEHOLDERS } from "@/domain/identity";
-import type { Customer } from "@/domain/types";
+import type { Client } from "@/domain/types";
 import { amountInWordsPkr, rupeesToMinor } from "@/lib/amountInWords";
 import { billFileName, renderBillInvoice } from "@/lib/billInvoice";
 import { formatPkr, parseIsoDate, toIsoDate, todayIso } from "@/lib/format";
@@ -66,8 +75,10 @@ export interface CreateBillFormProps {
 }
 
 export function CreateBillForm({ onCreated }: CreateBillFormProps) {
-  const { bills, customers: customerRepository } = useRepositories();
-  const [knownCustomers, setKnownCustomers] = useState<Customer[]>([]);
+  const { bills, clients: clientRepository } = useRepositories();
+  const [knownClients, setKnownClients] = useState<Client[]>([]);
+  const [removingClient, setRemovingClient] = useState<Client | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [invoiceNotice, setInvoiceNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -81,52 +92,62 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
 
   useEffect(() => {
     let active = true;
-    customerRepository
+    clientRepository
       .list()
       .then((list) => {
         if (active) {
-          setKnownCustomers(list);
+          setKnownClients(list);
         }
       })
       .catch(() => {
         if (active) {
-          setKnownCustomers([]);
+          setKnownClients([]);
         }
       });
     return () => {
       active = false;
     };
-  }, [customerRepository]);
-
-  const customerName = useWatch({ control: form.control, name: "customerName" }) ?? "";
+  }, [clientRepository]);
 
   // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
   /**
-   * Choosing a customer billed before fills their saved details in (FR-066,
-   * FR-067). It fires only when the typed name matches a remembered customer
-   * exactly, so details edited afterwards are never overwritten.
+   * Choosing a client in the picker fills in the customer's name, first phone
+   * number, first email and password (client request). The bill's customer
+   * fields are single-valued, so where a client holds several of a value its
+   * first one is used. Fields the client book does not hold — address, contact
+   * person, NTN — are left as they are.
    */
-  useEffect(() => {
-    const match = knownCustomers.find(
-      (customer) => customer.name.toLowerCase() === customerName.trim().toLowerCase(),
-    );
-    if (!match) {
+  function applyClient(client: Client) {
+    form.setValue("customerName", client.name, { shouldDirty: true, shouldValidate: true });
+    form.setValue("contactNumber", client.phones[0] ?? "", {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("email", client.emails[0] ?? "", {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("customerPassword", client.password ?? "", {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  }
+
+  async function confirmRemoveClient() {
+    if (!removingClient) {
       return;
     }
-
-    const details: Array<[BillTextFieldName, string | null]> = [
-      ["customerAddress", match.address],
-      ["contactPerson", match.contactPerson],
-      ["contactNumber", match.contactNumber],
-      ["email", match.email],
-      ["ntn", match.ntn],
-      ["customerPassword", match.password],
-    ];
-    for (const [name, value] of details) {
-      form.setValue(name, value ?? "", { shouldDirty: true, shouldValidate: true });
+    setRemoveBusy(true);
+    try {
+      await clientRepository.remove(removingClient.cnic);
+      setKnownClients((list) => list.filter((entry) => entry.cnic !== removingClient.cnic));
+      setRemovingClient(null);
+    } finally {
+      setRemoveBusy(false);
     }
-  }, [customerName, knownCustomers, form]);
+  }
 
+  const customerName = useWatch({ control: form.control, name: "customerName" }) ?? "";
   const items = useWatch({ control: form.control, name: "items" }) ?? [];
   const total = items.reduce((sum, item) => {
     const amount = Number(item?.amount);
@@ -222,14 +243,25 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
                   )}
                 />
 
-                <BillTextField
-                  control={form.control}
-                  name="customerName"
-                  label="Customer Name"
-                  placeholder="Who this bill is for"
-                  disabled={submitting}
-                  listId="bill-known-customers"
-                />
+                <div className="grid gap-2">
+                  <span className="text-sm leading-none font-medium">Customer Name</span>
+                  {/* Free text: any name may be billed, client or not. Picking a
+                      client from the book fills their saved details. */}
+                  <ClientCombobox
+                    clients={knownClients}
+                    value={customerName}
+                    onValueChange={(next) =>
+                      form.setValue("customerName", next, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
+                    onSelect={applyClient}
+                    onRemove={setRemovingClient}
+                    disabled={submitting}
+                    placeholder="Type any name, or pick a client"
+                  />
+                </div>
               </div>
 
               <div className="mt-5">
@@ -331,13 +363,6 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
             </div>
           </div>
 
-          {/* Previously used customers, so a name can be picked and its details fill in. */}
-          <datalist id="bill-known-customers">
-            {knownCustomers.map((customer) => (
-              <option key={customer.name} value={customer.name} />
-            ))}
-          </datalist>
-
           <div className="mt-6 flex justify-center">
             <NoiseButton type="submit" disabled={!isValid || submitting}>
               {submitting ? "Saving…" : "Create Bill"}
@@ -354,6 +379,44 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
               {submitError}
             </p>
           ) : null}
+
+          {/* Removing a client from the picker asks first (client request). */}
+          <Dialog
+            open={removingClient !== null}
+            onOpenChange={(open) => {
+              if (!open) {
+                setRemovingClient(null);
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Remove this client?</DialogTitle>
+                <DialogDescription>
+                  {removingClient ? `${removingClient.name} (${removingClient.cnic})` : ""} and
+                  every contact value recorded for them will be removed from the client book.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={removeBusy}
+                  onClick={() => setRemovingClient(null)}
+                >
+                  Keep
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={removeBusy}
+                  onClick={() => void confirmRemoveClient()}
+                >
+                  {removeBusy ? "Removing…" : "Remove"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </section>
       </form>
     </Form>

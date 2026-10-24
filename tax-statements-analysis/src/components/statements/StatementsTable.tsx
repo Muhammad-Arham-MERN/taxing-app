@@ -7,8 +7,16 @@ import {
   useLegacyTable,
   type LegacyColumnDef,
 } from "@tanstack/react-table/legacy";
-import { Download, Pencil } from "lucide-react";
+import { Download, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -33,7 +41,29 @@ export interface StatementsTableProps {
 export function StatementsTable({ statements, onChanged }: StatementsTableProps) {
   const { statements: repository } = useRepositories();
   const [editing, setEditing] = useState<Statement | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Statement | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+
+  // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+  async function confirmDelete() {
+    if (!pendingDelete) {
+      return;
+    }
+    setDeleting(true);
+    setFileError(null);
+    try {
+      await repository.remove(pendingDelete.id);
+      setPendingDelete(null);
+      onChanged();
+    } catch (error) {
+      setFileError(
+        error instanceof Error ? error.message : "That statement could not be deleted.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
   /**
@@ -119,15 +149,26 @@ export function StatementsTable({ statements, onChanged }: StatementsTableProps)
         id: "actions",
         header: "",
         cell: ({ row }) => (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setEditing(row.original)}
-          >
-            <Pencil className="size-3.5" />
-            Edit
-          </Button>
+          <div className="flex justify-end gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditing(row.original)}
+            >
+              <Pencil className="size-3.5" />
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Delete statement ${row.original.nature}`}
+              onClick={() => setPendingDelete(row.original)}
+            >
+              <Trash2 aria-hidden="true" className="size-3.5 text-destructive" />
+            </Button>
+          </div>
         ),
       },
     ],
@@ -231,6 +272,45 @@ export function StatementsTable({ statements, onChanged }: StatementsTableProps)
         }}
         onSaved={onChanged}
       />
+
+      {/* Every deletion is confirmed (client request). */}
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDelete(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this statement?</DialogTitle>
+            <DialogDescription>
+              {pendingDelete
+                ? `The ${pendingDelete.type === "inflow" ? "In-Flow" : "Out-Flow"} ${pendingDelete.nature} statement of ${formatAmount(pendingDelete.amount)} will be removed, along with its attachment.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting}
+              onClick={() => setPendingDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

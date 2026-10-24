@@ -13,6 +13,7 @@
  * every byte into a decimal number and inflate a 50 MB scan into ~200 MB of text.
  */
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   AttachmentOpenFailedError,
   AttachmentWriteFailedError,
@@ -24,13 +25,24 @@ import {
   LocationUnwritableError,
   NoStorageLocationError,
   NotAStoreError,
+  ObjectStorageNotConfiguredError,
+  ObjectStorageUnavailableError,
+  SecretsStoreUnavailableError,
   StoreDamagedError,
   StoreWriteFailedError,
   UnknownBillError,
+  UnknownCategoryError,
+  UnknownClientError,
+  UnknownRecordError,
   UnknownStatementError,
   ValidationError,
   type BillRepository,
+  type CategoryRepository,
+  type ClientRecordRepository,
+  type ClientRepository,
+  type CloudRepository,
   type CustomerRepository,
+  type SetupRepository,
   type StatementRepository,
   type StorageRepository,
 } from "@/data/repositories";
@@ -41,14 +53,28 @@ import type {
   BillSummary,
   BillUpdate,
   CarryAcrossChoice,
+  Category,
+  CategoryInput,
+  Client,
+  ClientRecord,
+  ClientRecordUpdate,
+  CloudStatus,
+  CloudUsage,
   Customer,
   LocationAssessment,
   NewBill,
+  NewClientRecord,
   NewStatement,
+  ObjectUsage,
+  ReconnectResult,
+  SecretsPasteResult,
+  SetupConnectResult,
+  SetupState,
   Statement,
   StatementFilter,
   StatementUpdate,
   StorageState,
+  SyncResult,
 } from "@/domain/types";
 
 /** Where the statement's own fields travel when the body holds a file. */
@@ -56,6 +82,9 @@ const META_HEADER = "x-statement-meta";
 
 /** Where a rendered invoice's file name travels when the body holds the PDF. */
 const INVOICE_META_HEADER = "x-bill-invoice-meta";
+
+/** Where a client record's own fields travel when the body holds a file. */
+const RECORD_META_HEADER = "x-record-meta";
 
 interface BackendError {
   kind: string;
@@ -80,6 +109,12 @@ function toSeamError(raw: unknown): Error {
       return new UnknownStatementError();
     case "unknownBill":
       return new UnknownBillError();
+    case "unknownClient":
+      return new UnknownClientError(message);
+    case "unknownCategory":
+      return new UnknownCategoryError(message);
+    case "unknownRecord":
+      return new UnknownRecordError(message);
     case "invoiceWriteFailed":
       return new InvoiceWriteFailedError(message);
     case "invoiceOpenFailed":
@@ -98,6 +133,12 @@ function toSeamError(raw: unknown): Error {
       return new LocationUnwritableError(message);
     case "noStorageLocation":
       return new NoStorageLocationError(message);
+    case "secretsStoreUnavailable":
+      return new SecretsStoreUnavailableError(message);
+    case "objectStorageUnavailable":
+      return new ObjectStorageUnavailableError(message);
+    case "objectStorageNotConfigured":
+      return new ObjectStorageNotConfiguredError(message);
     case "carryAcrossInterrupted":
       return new CarryAcrossInterruptedError(
         message,
@@ -142,6 +183,7 @@ export class TauriStatementRepository implements StatementRepository {
       return callRaw<Statement>("create_statement", attachment.bytes, {
         input,
         fileName: attachment.fileName,
+        contentType: attachment.contentType,
       });
     }
     return call<Statement>("create_statement", { input });
@@ -161,14 +203,18 @@ export class TauriStatementRepository implements StatementRepository {
 
   async update(update: StatementUpdate): Promise<Statement> {
     if (update.attachment.action === "replace") {
-      const { action, fileName } = update.attachment;
+      const { action, fileName, contentType } = update.attachment;
       // The bytes deliberately stay out of the meta — sending them twice would
       // defeat the whole point of the raw body.
       return callRaw<Statement>("update_statement", update.attachment.bytes, {
-        update: { ...update, attachment: { action, fileName } },
+        update: { ...update, attachment: { action, fileName, contentType } },
       });
     }
     return call<Statement>("update_statement", { update });
+  }
+
+  async remove(id: string): Promise<void> {
+    await call<void>("delete_statement", { id });
   }
 
   async openAttachment(statementId: string): Promise<void> {
@@ -266,6 +312,158 @@ export class TauriCustomerRepository implements CustomerRepository {
 
   async update(customer: Customer): Promise<Customer> {
     return call<Customer>("update_customer", { customer });
+  }
+}
+
+export class TauriClientRepository implements ClientRepository {
+  async create(input: Client): Promise<Client> {
+    return call<Client>("create_client", { input });
+  }
+
+  async update(input: Client): Promise<Client> {
+    return call<Client>("update_client", { input });
+  }
+
+  async list(): Promise<Client[]> {
+    return call<Client[]>("list_clients");
+  }
+
+  async remove(cnic: string): Promise<void> {
+    await call<void>("delete_client", { cnic });
+  }
+}
+
+export class TauriCategoryRepository implements CategoryRepository {
+  async list(): Promise<Category[]> {
+    return call<Category[]>("list_categories");
+  }
+
+  async create(input: CategoryInput): Promise<Category> {
+    return call<Category>("create_category", { name: input.name, color: input.color });
+  }
+
+  async update(id: string, input: CategoryInput): Promise<Category> {
+    return call<Category>("update_category", { id, name: input.name, color: input.color });
+  }
+
+  async remove(id: string): Promise<void> {
+    await call<void>("delete_category", { id });
+  }
+}
+
+export class TauriClientRecordRepository implements ClientRecordRepository {
+  async list(cnic: string): Promise<ClientRecord[]> {
+    return call<ClientRecord[]>("list_client_records", { cnic });
+  }
+
+  async create(
+    input: NewClientRecord,
+    attachment?: AttachmentPayload | null,
+  ): Promise<ClientRecord> {
+    if (attachment) {
+      return callRaw<ClientRecord>(
+        "create_client_record",
+        attachment.bytes,
+        { input, fileName: attachment.fileName, contentType: attachment.contentType },
+        RECORD_META_HEADER,
+      );
+    }
+    return call<ClientRecord>("create_client_record", { input });
+  }
+
+  async update(update: ClientRecordUpdate): Promise<ClientRecord> {
+    if (update.attachment.action === "replace") {
+      const { action, fileName, contentType } = update.attachment;
+      return callRaw<ClientRecord>(
+        "update_client_record",
+        update.attachment.bytes,
+        { update: { ...update, attachment: { action, fileName, contentType } } },
+        RECORD_META_HEADER,
+      );
+    }
+    return call<ClientRecord>("update_client_record", { update });
+  }
+
+  async remove(id: string): Promise<void> {
+    await call<void>("delete_client_record", { id });
+  }
+
+  async openFile(id: string): Promise<void> {
+    await call<void>("open_client_record_file", { id });
+  }
+
+  async saveFileCopy(id: string): Promise<string | null> {
+    return call<string | null>("save_client_record_file_copy", { id });
+  }
+}
+
+// ---- Cloud sync (Module 4) ------------------------------------------------
+
+/** The event the background sync task emits after an automatic pull (R9). */
+const PULLED_EVENT = "cloud://pulled";
+
+export class TauriCloudRepository implements CloudRepository {
+  async status(): Promise<CloudStatus> {
+    return call<CloudStatus>("cloud_status");
+  }
+
+  async push(): Promise<SyncResult> {
+    return call<SyncResult>("cloud_push");
+  }
+
+  async pull(): Promise<SyncResult> {
+    return call<SyncResult>("cloud_pull");
+  }
+
+  async usage(): Promise<CloudUsage | null> {
+    return call<CloudUsage | null>("cloud_usage");
+  }
+
+  async objectUsage(): Promise<ObjectUsage | null> {
+    return call<ObjectUsage | null>("cloud_object_usage");
+  }
+
+  /** Connectivity check + gauge refresh only — never pushes or pulls. */
+  async reconnect(): Promise<ReconnectResult> {
+    return call<ReconnectResult>("cloud_reconnect");
+  }
+
+  /**
+   * Subscribe to the background-pull event. Returns a disposer that unlistens
+   * even if it is called before the listener finished registering.
+   */
+  onPulled(handler: () => void): () => void {
+    let dispose: (() => void) | null = null;
+    let disposed = false;
+
+    void listen(PULLED_EVENT, () => handler()).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        dispose = unlisten;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      dispose?.();
+    };
+  }
+}
+
+export class TauriSetupRepository implements SetupRepository {
+  async state(): Promise<SetupState> {
+    return call<SetupState>("get_setup_state");
+  }
+
+  /** The secrets are never returned to the frontend, only their acceptance. */
+  async saveSecrets(text: string): Promise<SecretsPasteResult> {
+    return call<SecretsPasteResult>("save_secrets", { text });
+  }
+
+  /** A real round trip to the cloud; unlocks the app only when it succeeds. */
+  async connect(): Promise<SetupConnectResult> {
+    return call<SetupConnectResult>("setup_connect");
   }
 }
 

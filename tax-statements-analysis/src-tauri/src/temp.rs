@@ -28,6 +28,7 @@ fn attachments_root(app: &AppHandle) -> Result<PathBuf, String> {
 /// A folder private to this run of the application.
 pub fn start_run(app: &AppHandle) -> Result<PathBuf, String> {
     let folder = attachments_root(app)?.join(uuid::Uuid::new_v4().to_string());
+    crate::log_debug!("temp::start_run: creating {}", folder.display());
     std::fs::create_dir_all(&folder)
         .map_err(|error| format!("The temporary folder could not be created: {error}"))?;
     Ok(folder)
@@ -43,12 +44,17 @@ pub fn clear_other_runs(app: &AppHandle, current: &Path) {
         return;
     };
 
+    let mut cleared = 0u32;
     for entry in entries.flatten() {
         let path = entry.path();
         if path == current || !path.is_dir() {
             continue;
         }
         remove_folder_tolerating_locks(&path);
+        cleared += 1;
+    }
+    if cleared > 0 {
+        crate::log_debug!("temp::clear_other_runs: cleared {cleared} earlier run folder(s)");
     }
 }
 
@@ -86,6 +92,11 @@ pub fn write_out(folder: &Path, file_name: &str, bytes: &[u8]) -> Result<PathBuf
     let target = folder.join(safe_name);
     std::fs::write(&target, bytes)
         .map_err(|error| format!("The file could not be written out to view it: {error}"))?;
+    crate::log_debug!(
+        "temp::write_out: wrote {} byte(s) to {}",
+        bytes.len(),
+        target.display()
+    );
     Ok(target)
 }
 

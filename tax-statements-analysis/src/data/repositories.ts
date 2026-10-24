@@ -7,14 +7,28 @@ import type {
   BillUpdate,
   BusinessProfile,
   CarryAcrossChoice,
+  Category,
+  CategoryInput,
+  Client,
+  ClientRecord,
+  ClientRecordUpdate,
+  CloudStatus,
+  CloudUsage,
   Customer,
   LocationAssessment,
   NewBill,
+  NewClientRecord,
   NewStatement,
+  ObjectUsage,
+  ReconnectResult,
+  SecretsPasteResult,
+  SetupConnectResult,
+  SetupState,
   Statement,
   StatementFilter,
   StatementUpdate,
   StorageState,
+  SyncResult,
 } from "@/domain/types";
 
 export class ValidationError extends Error {
@@ -129,6 +143,9 @@ export interface StatementRepository {
   /** Correct a stored statement in place — never a second record (FR-042). */
   update(update: StatementUpdate): Promise<Statement>;
 
+  /** Delete a statement and its attachment (client request). */
+  remove(id: string): Promise<void>;
+
   /**
    * Hand the file to the operating system so it opens in the preferred app
    * (FR-065). The file itself never crosses into the frontend: only the
@@ -180,6 +197,27 @@ export class UnknownBillError extends Error {
   }
 }
 
+export class UnknownClientError extends Error {
+  constructor(message = "That client no longer exists.") {
+    super(message);
+    this.name = "UnknownClientError";
+  }
+}
+
+export class UnknownCategoryError extends Error {
+  constructor(message = "That category no longer exists.") {
+    super(message);
+    this.name = "UnknownCategoryError";
+  }
+}
+
+export class UnknownRecordError extends Error {
+  constructor(message = "That record no longer exists.") {
+    super(message);
+    this.name = "UnknownRecordError";
+  }
+}
+
 export class InvoiceWriteFailedError extends Error {
   constructor(message: string) {
     super(message);
@@ -228,6 +266,135 @@ export interface CustomerRepository {
 
   /** Save a customer's own details from the customer popup (client change, 2026-09-19). */
   update(customer: Customer): Promise<Customer>;
+}
+
+/**
+ * The contact book (client request). A client is identified by CNIC, and saving
+ * the same CNIC again merges: the name stays as first written and each new
+ * contact value joins the list.
+ */
+export interface ClientRepository {
+  /** Record a client, merging into the one already held under that CNIC. */
+  create(input: Client): Promise<Client>;
+
+  /**
+   * Correct a stored client in place (the edit behind a client block). Unlike
+   * `create`, this replaces the client's own details and contacts outright.
+   */
+  update(input: Client): Promise<Client>;
+
+  /** Every client, for the View tab and the bill form's picker. */
+  list(): Promise<Client[]>;
+
+  /** Remove a client and every contact value recorded for them. */
+  remove(cnic: string): Promise<void>;
+}
+
+/**
+ * Categories (client request): one global, named, coloured tag list shared by
+ * clients and their records. Deleting a category only clears the tag from
+ * anything filed under it.
+ */
+export interface CategoryRepository {
+  list(): Promise<Category[]>;
+  create(input: CategoryInput): Promise<Category>;
+  update(id: string, input: CategoryInput): Promise<Category>;
+  remove(id: string): Promise<void>;
+}
+
+/**
+ * A client's own records (client request): the rows behind the table opened from
+ * a client block. Each may carry one file, whose bytes never cross into the
+ * frontend — only the record's id goes the other way.
+ */
+export interface ClientRecordRepository {
+  /** Every record belonging to one client, newest first. */
+  list(cnic: string): Promise<ClientRecord[]>;
+
+  /** Record an entry, with its file's contents when one was attached. */
+  create(input: NewClientRecord, attachment?: AttachmentPayload | null): Promise<ClientRecord>;
+
+  /** Correct a record in place; the file may be kept, removed or replaced. */
+  update(update: ClientRecordUpdate): Promise<ClientRecord>;
+
+  /** Delete a record and its file. */
+  remove(id: string): Promise<void>;
+
+  /** Hand the record's file to the operating system so it opens in the preferred app. */
+  openFile(id: string): Promise<void>;
+
+  /** Save a copy of the record's file wherever the practitioner chooses. */
+  saveFileCopy(id: string): Promise<string | null>;
+}
+
+// ---- Cloud sync (Module 4) ------------------------------------------------
+
+/** Windows Credential Manager could not be read or written (FR-046, FR-047). */
+export class SecretsStoreUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SecretsStoreUnavailableError";
+  }
+}
+
+/** The file's bytes are not on this machine and could not be fetched from Oracle. */
+export class ObjectStorageUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ObjectStorageUnavailableError";
+  }
+}
+
+/** Oracle Object Storage is not configured on this computer. */
+export class ObjectStorageNotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ObjectStorageNotConfiguredError";
+  }
+}
+
+export interface CloudRepository {
+  /** Secrets configured + un-pushed marker. Never touches the network (R4, R8). */
+  status(): Promise<CloudStatus>;
+
+  /** Publish this computer's changes to the central copy (FR-006–FR-012). */
+  push(): Promise<SyncResult>;
+
+  /** Bring the other computers' changes down (FR-013–FR-020). */
+  pull(): Promise<SyncResult>;
+
+  /** Cloud storage headroom for the header gauge, or null when unavailable (FR-029–FR-032). */
+  usage(): Promise<CloudUsage | null>;
+
+  /** Oracle Object Storage usage for the file gauge, or null when unavailable. */
+  objectUsage(): Promise<ObjectUsage | null>;
+
+  /**
+   * The header's Reconnect action: make sure this computer is pointed at the
+   * cloud and refresh the storage figures. Never pushes or pulls.
+   */
+  reconnect(): Promise<ReconnectResult>;
+
+  /**
+   * Subscribe to automatic-pull notifications (R9). Returns an unsubscribe
+   * function; the handler fires only when a background pull changed something.
+   */
+  onPulled(handler: () => void): () => void;
+}
+
+export interface SetupRepository {
+  /** What setup still needs: a usable store and the secrets (FR-005). */
+  state(): Promise<SetupState>;
+
+  /** Parse the partner's env file and save the required values (FR-044–FR-048). */
+  saveSecrets(text: string): Promise<SecretsPasteResult>;
+
+  /**
+   * Prove the saved details reach the cloud, and switch the store to the synced
+   * engine on success. The application becomes usable only after this passes
+   * (FR-005, FR-047).
+   */
+  connect(): Promise<SetupConnectResult>;
 }
 
 // وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

@@ -55,16 +55,6 @@ pub struct StorageState {
     pub problem: Option<StorageProblem>,
 }
 
-impl StorageState {
-    pub fn none() -> Self {
-        StorageState {
-            chosen: false,
-            location: None,
-            problem: None,
-        }
-    }
-}
-
 fn settings_file(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -75,8 +65,24 @@ fn settings_file(app: &AppHandle) -> Result<PathBuf, String> {
 
 pub fn read_location(app: &AppHandle) -> Option<StorageLocation> {
     let path = settings_file(app).ok()?;
-    let raw = std::fs::read_to_string(path).ok()?;
-    let parsed: SettingsFile = serde_json::from_str(&raw).ok()?;
+    crate::log_debug!("read_location: reading {}", path.display());
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            crate::log_debug!("read_location: could not read {}: {error}", path.display());
+            return None;
+        }
+    };
+    let parsed: SettingsFile = match serde_json::from_str(&raw) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            crate::log_warn!(
+                "read_location: {} is not valid settings JSON: {error}",
+                path.display()
+            );
+            return None;
+        }
+    };
     parsed.storage_location
 }
 
@@ -92,7 +98,14 @@ pub fn write_location(app: &AppHandle, location: &StorageLocation) -> Result<(),
     let raw = serde_json::to_string_pretty(&payload)
         .map_err(|error| format!("The setting could not be prepared: {error}"))?;
     std::fs::write(&path, raw)
-        .map_err(|error| format!("The setting could not be saved: {error}"))
+        .map_err(|error| format!("The setting could not be saved: {error}"))?;
+    crate::log_info!(
+        "write_location: remembered {} ({:?}) in {}",
+        location.path,
+        location.kind,
+        path.display()
+    );
+    Ok(())
 }
 
 /// The file a location refers to. A chosen folder gets the store created inside

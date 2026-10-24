@@ -25,10 +25,22 @@ pub enum ErrorKind {
     StoreWriteFailed,
     UnknownStatement,
     UnknownBill,
+    UnknownClient,
+    UnknownCategory,
+    UnknownRecord,
     AttachmentMissing,
     AttachmentWriteFailed,
     AttachmentOpenFailed,
+    /// The file's bytes are not on this machine and could not be fetched from
+    /// Oracle Object Storage (offline, or not yet uploaded).
+    ObjectStorageUnavailable,
+    /// Oracle Object Storage is not configured on this machine.
+    ObjectStorageNotConfigured,
     CarryAcrossInterrupted,
+    /// Windows Credential Manager holds no secrets or cannot be read/written
+    /// (FR-046, FR-047). The setup gate keeps the practitioner in onboarding
+    /// until it works.
+    SecretsStoreUnavailable,
     Io,
 }
 
@@ -94,6 +106,11 @@ impl CommandError {
         }
     }
 
+    /// Windows Credential Manager could not be used (contracts §3).
+    pub fn secrets_store_unavailable(message: impl Into<String>) -> Self {
+        CommandError::new(ErrorKind::SecretsStoreUnavailable, message)
+    }
+
     pub fn from_storage_problem(problem: StorageProblem) -> Self {
         match problem {
             StorageProblem::Unreachable => CommandError::new(
@@ -129,8 +146,25 @@ impl From<StoreError> for CommandError {
             StoreError::Unwritable(_) => ErrorKind::LocationUnwritable,
             StoreError::UnknownStatement => ErrorKind::UnknownStatement,
             StoreError::UnknownBill => ErrorKind::UnknownBill,
+            StoreError::UnknownClient => ErrorKind::UnknownClient,
+            StoreError::UnknownCategory => ErrorKind::UnknownCategory,
+            StoreError::UnknownRecord => ErrorKind::UnknownRecord,
             StoreError::NoAttachment => ErrorKind::AttachmentMissing,
-            StoreError::Sqlite(_) | StoreError::Io(_) => ErrorKind::StoreWriteFailed,
+            StoreError::FileMissing => ErrorKind::AttachmentWriteFailed,
+            StoreError::Engine(_) | StoreError::Io(_) => ErrorKind::StoreWriteFailed,
+        };
+        CommandError::new(kind, message)
+    }
+}
+
+impl From<crate::files::FileError> for CommandError {
+    fn from(error: crate::files::FileError) -> Self {
+        let message = error.to_string();
+        let kind = match error {
+            crate::files::FileError::NotConfigured => ErrorKind::ObjectStorageNotConfigured,
+            crate::files::FileError::Offline(_) | crate::files::FileError::Failed(_) => {
+                ErrorKind::ObjectStorageUnavailable
+            }
         };
         CommandError::new(kind, message)
     }

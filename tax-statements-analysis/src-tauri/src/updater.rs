@@ -24,9 +24,10 @@ use tauri_plugin_updater::UpdaterExt;
 pub fn check_in_background(app: &AppHandle) {
     let app = app.clone();
 
+    crate::log_info!("updater: checking for a newer release in the background");
     tauri::async_runtime::spawn(async move {
         if let Err(error) = install_if_available(&app).await {
-            eprintln!("update check failed: {error}");
+            crate::log_error!("update check failed: {error}");
         }
     });
 }
@@ -38,13 +39,16 @@ pub fn check_in_background(app: &AppHandle) {
 /// so the restart on the last line is what brings the new version back up.
 async fn install_if_available(app: &AppHandle) -> tauri_plugin_updater::Result<()> {
     let Some(update) = app.updater()?.check().await? else {
+        crate::log_info!("updater: this is the newest version");
         return Ok(());
     };
 
+    crate::log_info!("updater: downloading and installing {}", update.version);
     update
         .download_and_install(|_chunk_length, _content_length| {}, || {})
         .await?;
 
+    crate::log_info!("updater: installed — restarting");
     app.restart()
 }
 
