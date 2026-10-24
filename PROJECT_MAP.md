@@ -116,7 +116,7 @@ Maps every repository method to a Tauri command. **Files travel as raw request b
 | `TauriClientRepository` | `create`, `update`, `list`, `remove(cnic)` |
 | `TauriCategoryRepository` | `list`, `create(input)`, `update(id,input)`, `remove(id)` |
 | `TauriClientRecordRepository` | `list(cnic)`, `create` (raw body when attached), `update` (raw body on `replace`), `remove(id)`, `openFile(id)`, `saveFileCopy(id)` |
-| `TauriCloudRepository` | `status`, `push`, `pull`, `usage`, `objectUsage` (Oracle bucket bytes + pending uploads), `onPulled(handler)` (subscribes to `cloud://pulled`) |
+| `TauriCloudRepository` | `status`, `push`, `pull`, `usage`, `objectUsage` (Oracle bucket bytes + pending uploads), `reconnect` (connectivity check + gauges; **never** pushes/pulls), `onPulled(handler)` (subscribes to `cloud://pulled`) |
 | `TauriSetupRepository` | `state`, `saveSecrets(text)`, `connect()` |
 
 Internal: `call<T>(command,args?)`, `callRaw<T>(command,bytes,meta,header)`; consts `META_HEADER`, `INVOICE_META_HEADER`, `RECORD_META_HEADER`, `PULLED_EVENT`.
@@ -129,7 +129,7 @@ A full in-memory twin of every repository used by tests and by the browser build
 
 | File | Responsibility | Key exports |
 |---|---|---|
-| `types.ts` | The shared domain vocabulary — **every cross-layer type lives here.** | `StatementType`, `Statement`, `NewStatement`, `BusinessProfile`, `StatementFilter`, `StatementSummary`, `AttachmentPayload`, `AttachmentChange`, `StatementUpdate`, `StorageLocation`, `StorageProblem`, `StorageState`, `CarryAcrossChoice`, `LocationRisk`, `LocationAssessment`, `Customer`, `Client` (now carrying `password` + `categoryId`), `Category`, `CategoryInput`, `ClientRecord`, `NewClientRecord`, `ClientRecordUpdate`, `BillItem`, `NewBillItem`, `Bill`, `NewBill`, `BillUpdate`, `BillFilter`, `BillSummary`, `CloudPhase`, `CloudStatus`, `SetupState`, `SecretsPasteResult`, `SetupConnectResult`, `SyncOutcomeKind`, `SyncOutcome`, `SyncResult`, `CloudUsage`, `ObjectUsage` |
+| `types.ts` | The shared domain vocabulary — **every cross-layer type lives here.** | `StatementType`, `Statement`, `NewStatement`, `BusinessProfile`, `StatementFilter`, `StatementSummary`, `AttachmentPayload`, `AttachmentChange`, `StatementUpdate`, `StorageLocation`, `StorageProblem`, `StorageState`, `CarryAcrossChoice`, `LocationRisk`, `LocationAssessment`, `Customer`, `Client` (now carrying `password` + `categoryId`), `Category`, `CategoryInput`, `ClientRecord`, `NewClientRecord`, `ClientRecordUpdate`, `BillItem`, `NewBillItem`, `Bill`, `NewBill`, `BillUpdate`, `BillFilter`, `BillSummary`, `CloudPhase`, `CloudStatus`, `SetupState`, `SecretsPasteResult`, `SetupConnectResult`, `SyncOutcomeKind`, `SyncOutcome`, `SyncResult`, `CloudUsage`, `ObjectUsage`, `ReconnectResult` |
 | `validation.ts` | Zod schemas + coercion for statements (form & persisted). | `statementTypeSchema`, `statementTypeInputSchema`, `isoDateSchema`, `amountInputSchema`, `amountSchema`, `statementFormSchema`, `newStatementSchema`, `statementFilterSchema`, `StatementFormInput/Output`, `StatementFilterValues`, `toNewStatement()` |
 | `billValidation.ts` | Zod schemas + coercion for the bill form. | `billItemInputSchema`, `billFormSchema`, `BillFormInput/Output`, `toNewBill()`, `toBillUpdate()` |
 | `identity.ts` | Fixed (non-stored) header/invoice identity constants. | `HEADER_IDENTITY`, `COMPANY_FULL_NAME`, `DEFAULT_ACCOUNT_HOLDER`, `WALLET_PLACEHOLDERS`, `BANK_DETAILS` |
@@ -157,7 +157,7 @@ A full in-memory twin of every repository used by tests and by the browser build
 | `useBackupReminder.ts` | Once-a-calendar-month backup reminder, remembered in `localStorage` (this machine only). | `BACKUP_REMINDER_KEY`, `useBackupReminder()` |
 | `useToast.ts` | Module-level toast store backing the shadcn toast UI. | `ToastVariant`, `ToastOptions`, `Toast`, `dismissToast()`, `toast()`, `useToasts()` |
 
-`CloudSyncController` exposes `phase`, `outcome`, `status`, `usage`, `objectUsage`, `closeWarningOpen`, and `push/pull/reconnect/refreshStatus/refreshUsage/refreshObjectUsage/pushThenClose/closeAnyway/cancelClose`.
+`CloudSyncController` exposes `phase`, `outcome`, `status`, `usage`, `objectUsage`, `closeWarningOpen`, and `push/pull/reconnect/refreshStatus/refreshUsage/refreshObjectUsage/pushThenClose/closeAnyway/cancelClose`. **`reconnect` = connectivity check + gauge refresh only (never pushes or pulls)**; `setup.connect()` (onboarding) remains the one place a pull proves the round trip.
 
 ### 3.9 Components (`src/components/`)
 
@@ -202,8 +202,8 @@ A full in-memory twin of every repository used by tests and by the browser build
 | File | Responsibility | Key exports |
 |---|---|---|
 | `CreateClientForm.tsx` | Record a client (CNIC+name required; repeatable contacts; password + category; duplicate CNIC merges). | `CreateClientForm` |
-| `ViewClientsTab.tsx` | Client **blocks** grid + all-field search + category dropbox; opens a client's records; confirm-remove. | `ViewClientsTab` |
-| `ClientCard.tsx` | One client as a fixed-width block (3 details per row, masked password with an eye, glare/brand hover). | `ClientCard` |
+| `ViewClientsTab.tsx` | Client **blocks** in a 2-column grid that fills the container + all-field search + category dropbox; opens a client's records; confirm-remove. | `ViewClientsTab` |
+| `ClientCard.tsx` | One client as an auto-height block that fills its grid column (3 details per row, masked password with an eye, glare/brand hover). | `ClientCard` |
 | `ClientFields.tsx` | The client's own fields, shared by the Create tab and the edit dialog. | `ClientDraft`, `emptyClientDraft()`, `draftFromClient()`, `draftToClient()`, `ClientFields` |
 | `EditClientDialog.tsx` | Correct a stored client in place (CNIC read-only). | `EditClientDialog` |
 | `CategoryFilter.tsx` | The dropbox beside the search: filter + create/rename/recolour/delete categories. | `CategoryFilter` |
@@ -214,7 +214,7 @@ A full in-memory twin of every repository used by tests and by the browser build
 | `ClientCombobox.tsx` | Searchable client-book picker (Popover/Input). | `ClientCombobox` |
 
 #### `cloud/` (5 files)
-`CloudActions.tsx` (`CloudActions` — icon-only Push/Sync with spinner + toasts), `SyncProgress.tsx` (`SyncProgress`), `CloudOutcomeMessage.tsx` (`CloudOutcomeMessage`), `StorageGauge.tsx` (`StorageGauge` — Turso Cloud headroom; `ObjectStorageGauge` — Oracle file bytes used + pending uploads), `CloseWarningDialog.tsx` (`CloseWarningDialog` — push-then-close / close-anyway / cancel).
+`CloudActions.tsx` (`CloudActions` — icon-only Push/Sync with spinner + toasts), `SyncProgress.tsx` (`SyncProgress`), `CloudOutcomeMessage.tsx` (`CloudOutcomeMessage`), `StorageGauge.tsx` (`StorageGauge` — Turso Cloud headroom, brand-green; `ObjectStorageGauge` — Oracle file bytes used/10 GB left + pending uploads, uses the `--oracle` purple token), `CloseWarningDialog.tsx` (`CloseWarningDialog` — push-then-close / close-anyway / cancel).
 
 #### `onboarding/` (3 files)
 `SetupGate.tsx` (`SetupGate` — gates the app on `storageReady && secretsReady`), `SecretsDialog.tsx` (`SecretsDialog` — env-file picker/drag-drop → store secrets → prove cloud reachable), `SecretsStatus.tsx` (`SecretsStatus` — shows whether secrets are set, never the values).
@@ -239,7 +239,7 @@ Rust 2021, Tauri v2. Architecture: **lib.rs wiring → commands (IPC handlers) �
 | `lib.rs` | Whole app wiring: panic hook, plugins, startup `setup`, cloud sync spawn, command registration, `run()`. | `pub fn run()` |
 | `build.rs` | Tauri codegen. | `fn main()` |
 
-**`lib.rs` `run()` registration flow (order matters):** panic hook → startup logging banner → install `rustls` aws-lc-rs provider → `Builder::default()` → Windows `single-instance` (registered FIRST) → desktop `updater` plugin → `dialog` + `opener` plugins → `.setup()` (per-run temp folder via `temp::start_run` + `clear_other_runs`; open the local-only byte cache at `app_local_data_dir/tax-statements-cache.sqlite` via `store::object_cache::ObjectCache::open`; `state::load(&handle, &cache)`; `app.manage(AppState::new(state, run_folder, cache))`; `cloud::schedule::spawn`; background `updater::check_in_background`) → `.invoke_handler(generate_handler![...])` (all 43 commands, listed in §9) → `.run()`. Helper: `local_cache_path(app)`.
+**`lib.rs` `run()` registration flow (order matters):** panic hook → startup logging banner → install `rustls` aws-lc-rs provider → `Builder::default()` → Windows `single-instance` (registered FIRST) → desktop `updater` plugin → `dialog` + `opener` plugins → `.setup()` (per-run temp folder via `temp::start_run` + `clear_other_runs`; open the local-only byte cache at `app_local_data_dir/tax-statements-cache.sqlite` via `store::object_cache::ObjectCache::open`; `state::load(&handle, &cache)`; `app.manage(AppState::new(state, run_folder, cache))`; `cloud::schedule::spawn`; background `updater::check_in_background`) → `.invoke_handler(generate_handler![...])` (all 44 commands, listed in §9) → `.run()`. Helper: `local_cache_path(app)`.
 
 ### 4.2 Application state — `state.rs`
 
@@ -253,6 +253,7 @@ Rust 2021, Tauri v2. Architecture: **lib.rs wiring → commands (IPC handlers) �
 | `load(app, cache)` | Reads remembered location, opens it; records failure as a `problem` (never substitutes an empty store). |
 | `open_at(path, location, cache)` | Read-only verify → choose engine → connect → `prepare_connection` → live verify → `schema::migrate(conn, path, cache)`. |
 | `create_at(path, location)` | Creates a fresh store **through the engine that will be used** (avoids first-pull wipe). |
+| `ensure_synced_session(guard, config, cache)` / `restore_local(guard, path, location)` | Point the open session at the **synced** engine (a local switch — never pulls or pushes), or restore the local engine on failure. Shared by `setup_connect` and `cloud_reconnect`. |
 | `engine_for(path)` | Synced engine if cloud configured, else local. |
 | `problem_of(error)` | `StoreError` → `StorageProblem`. |
 
@@ -281,7 +282,7 @@ Rust 2021, Tauri v2. Architecture: **lib.rs wiring → commands (IPC handlers) �
 | File | Responsibility | Key exports |
 |---|---|---|
 | `mod.rs` | Only place the engine appears: open/verify/pragmas/identity. | consts `APPLICATION_ID=0x4D4D_5453`, `SCHEMA_VERSION=8`, `REQUIRED_TABLES_*` (…`_V8`); `enum StoreError` (+ `UnknownClient`/`UnknownCategory`/`UnknownRecord`/`FileMissing`), `type StoreResult`, `enum Verification`, `enum StoreProblem`; `build_local()`, `prepare_connection()`, `verify_read_only()`, `is_readable_database()`, `verify_connection()`, `pragma_i64()`, `table_exists()`, `app_meta_value()`, `count()`, `as_integer()` |
-| `schema.rs` | Schema creation, additive migration, identity/version stamp. | `OWNERSHIP_KEY/VALUE`, `VERSION_KEY`, DDL consts (`DDL`, `DDL_V2`, `DDL_V4`, `DDL_V6`, `DDL_V7`); `apply()`, `migrate(conn, store_file, cache)` (→v8), `column_exists()`, `now_iso()`; private `ensure_client_password_column()`, `migrate_attachments_in()`, **`move_attachments_to_objects()` / `move_record_files_to_objects()` (v7→v8, BLOB → cache + object reference)**, `civil_from_days()` |
+| `schema.rs` | Schema creation, additive migration, identity/version stamp. | `OWNERSHIP_KEY/VALUE`, `VERSION_KEY`, DDL consts (`DDL`, `DDL_V2`, `DDL_V4`, `DDL_V6`, `DDL_V7`); `apply()`, `migrate(conn, store_file, cache)` (→v8), **`current_version()` (header, else the `app_meta` marker — a synced header reads 0)**, `column_exists()`, `now_iso()`; private `ensure_client_password_column()`, `migrate_attachments_in()`, **`move_attachments_to_objects()` / `move_record_files_to_objects()` (v7→v8, BLOB → cache + object reference)**, `civil_from_days()` |
 | `statements.rs` | Statement reads/writes; one transaction per write; range queries never touch a file's bytes; amounts as integer paisa. | structs `Statement`, `NewStatement`, `enum AttachmentAction` (a `Replace` carries an `AttachmentRef`), `StatementUpdate`; `to_minor()`, `from_minor()`, `create()`, `list_range()`, `get()`, `update()`, `delete()` |
 | `bills.rs` | Bills: unique never-reused invoice numbers; totals summed in SQL. | structs `BillItem`, `Bill`, `NewBillItem`, `NewBill`, `BillUpdate`, `BillSummary`; `create()`, `get()`, `list()`, `update()`, `delete()`; private `allocate_invoice_no()`, `insert_items()`, `insert_wallets()`, `load_wallets()`, `load_items()`, `total_of()` |
 | `clients.rs` | Client contact book keyed by CNIC; contacts in their own rows; carries the client's password and category. | struct `Client`; `upsert_within()` (merge), `update_within()` (replace), `list()`, `get()`, `delete()`; private `contact_lists()`, `insert_contacts()` |
@@ -307,7 +308,7 @@ Rust 2021, Tauri v2. Architecture: **lib.rs wiring → commands (IPC handlers) �
 | `categories.rs` | The shared category list. Commands: `list_categories`, `create_category`, `update_category`, `delete_category` (name-uniqueness checked at the boundary). |
 | `client_records.rs` | A client's own records + their files (bytes via `files::store_file`/`fetch_bytes`). Commands: `list_client_records`, `create_client_record` / `update_client_record` (raw body + `x-record-meta` header when a file is present), `delete_client_record`, `open_client_record_file`, `save_client_record_file_copy`. |
 | `attachments.rs` | Open/save statement attachment copies via the OS; bytes read through `files::fetch_bytes` (cache, else Oracle). Commands: `open_attachment`, `save_attachment_copy`. |
-| `cloud.rs` | Cloud surface; ordinary sync failures returned as data, not errors. Push drains pending file uploads **before** publishing. Commands: `cloud_status`, `cloud_push`, `cloud_pull`, `cloud_usage`, `cloud_object_usage`. |
+| `cloud.rs` | Cloud surface; ordinary sync failures returned as data, not errors. Push drains pending file uploads **before** publishing. Commands: `cloud_status`, `cloud_push`, `cloud_pull`, `cloud_usage`, `cloud_object_usage`, `cloud_reconnect` (connectivity check + gauges, **never** pushes/pulls). |
 | `onboarding.rs` | Setup gate: what's missing, store env-file secrets, prove cloud round trip, clear secrets. Commands: `get_setup_state`, `save_secrets`, `setup_connect`, `clear_secrets`. |
 
 ### 4.7 Cloud (`src-tauri/src/cloud/`)
@@ -420,7 +421,7 @@ A file is written here the instant it is attached (so a save never needs the net
 
 ## 9. IPC COMMAND SURFACE (Tauri commands)
 
-43 `#[tauri::command]` handlers. Frontend wrapper: `src/data/tauri.ts` (§3.4).
+44 `#[tauri::command]` handlers. Frontend wrapper: `src/data/tauri.ts` (§3.4).
 
 | Group | Commands |
 |---|---|
@@ -431,7 +432,7 @@ A file is written here the instant it is attached (so a save never needs the net
 | categories (4) | `list_categories`, `create_category`, `update_category`, `delete_category` |
 | client records (6) | `list_client_records`, `create_client_record`, `update_client_record`, `delete_client_record`, `open_client_record_file`, `save_client_record_file_copy` |
 | attachments (2) | `open_attachment`, `save_attachment_copy` |
-| cloud (5) | `cloud_status`, `cloud_push`, `cloud_pull`, `cloud_usage`, `cloud_object_usage` |
+| cloud (6) | `cloud_status`, `cloud_push`, `cloud_pull`, `cloud_usage`, `cloud_object_usage`, `cloud_reconnect` |
 | onboarding (4) | `get_setup_state`, `save_secrets`, `setup_connect`, `clear_secrets` |
 
 Events: `cloud://pulled` (emitted after an automatic pull that changed something).
