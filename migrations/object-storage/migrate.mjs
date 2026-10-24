@@ -51,9 +51,29 @@ const s3 = new S3Client({
 
 const bucket = requireEnv("OCI_S3_BUCKET");
 
-async function userVersion() {
-  const result = await db.execute("PRAGMA user_version");
-  return Number(result.rows[0]?.[0] ?? 0);
+// The sync engine owns a synced database's file header, so `PRAGMA user_version`
+// reads 0 there — and the libsql HTTP protocol refuses to *write* it at all
+// ("SQL not allowed statement"). The schema version as **content**, the
+// `app_meta.schema_version` marker the application keeps, is the value that means
+// anything on such a database, so it is read first.
+async function currentVersion() {
+  try {
+    const result = await db.execute(
+      "SELECT value FROM app_meta WHERE key = 'schema_version'",
+    );
+    const parsed = Number(result.rows[0]?.value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  } catch {
+    // A very old database may have no app_meta table; fall through to the header.
+  }
+  try {
+    const result = await db.execute("PRAGMA user_version");
+    return Number(result.rows[0]?.[0] ?? 0);
+  } catch {
+    return 0;
+  }
 }
 
 async function columnExists(table, column) {
@@ -125,7 +145,7 @@ async function migrateTable({ table, idColumn, recreateSql }) {
 
 // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
 async function main() {
-  const version = await userVersion();
+  const version = await currentVersion();
   console.log(`Cloud schema is at version ${version}; target is ${TARGET_VERSION}.`);
   if (version >= TARGET_VERSION) {
     console.log("Already up to date — nothing to do.");
@@ -157,7 +177,8 @@ async function main() {
   });
 
   // Stamp the version last, so an interrupted run is completed by running again.
-  await db.execute(`PRAGMA user_version = ${TARGET_VERSION}`);
+  // Only the **content marker** is written: the file header is owned by the sync
+  // engine and the libsql HTTP protocol forbids writing `PRAGMA user_version`.
   await db.execute({
     sql: `INSERT INTO app_meta (key, value) VALUES ('schema_version', ?)
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
