@@ -10,7 +10,7 @@ use crate::commands::error::CommandError;
 use crate::state::AppState;
 use crate::store::StoreError;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// What setup still needs. The application is shown only when both are true
 /// (data-model §3, FR-005).
@@ -124,9 +124,12 @@ async fn apply_save_secrets(text: String) -> Result<SecretsPasteResult, CommandE
 /// classified exactly like a manual Sync, so a bad URL/token or a missing
 /// connection is reported for what it is.
 #[tauri::command]
-pub async fn setup_connect(state: State<'_, AppState>) -> Result<SetupConnectResult, CommandError> {
+pub async fn setup_connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SetupConnectResult, CommandError> {
     crate::log_info!("-> setup_connect (proving the cloud round trip)");
-    let result = apply_setup_connect(state).await;
+    let result = apply_setup_connect(app, state).await;
     if let Ok(ref view) = result {
         crate::log_info!(
             "setup_connect: ok={} kind={:?} — {}",
@@ -140,6 +143,7 @@ pub async fn setup_connect(state: State<'_, AppState>) -> Result<SetupConnectRes
 }
 
 async fn apply_setup_connect(
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SetupConnectResult, CommandError> {
     let Some(config) = config::load() else {
@@ -150,35 +154,46 @@ async fn apply_setup_connect(
         });
     };
 
-    let mut guard = state.inner.lock().await;
+    // The store guard is scoped: it is dropped before any file is fetched, so the
+    // download below never tries to re-lock a mutex this task still holds.
+    let outcome = {
+        let mut guard = state.inner.lock().await;
 
-    if guard.location.is_none() {
-        crate::log_warn!("setup_connect: no storage location has been chosen yet");
-        return Ok(SetupConnectResult {
-            ok: false,
-            kind: SyncOutcomeKind::Other,
-            message: "Choose where your records will be kept first.".to_string(),
-        });
-    }
+        if guard.location.is_none() {
+            crate::log_warn!("setup_connect: no storage location has been chosen yet");
+            return Ok(SetupConnectResult {
+                ok: false,
+                kind: SyncOutcomeKind::Other,
+                message: "Choose where your records will be kept first.".to_string(),
+            });
+        }
 
-    // Point the session at the synced engine (a local switch, never a pull). On
-    // failure the local engine is restored, so the practitioner is left usable.
-    if let Err(error) =
-        crate::state::ensure_synced_session(&mut guard, &config, &state.cache).await
-    {
-        return Ok(failure_from_store(error));
-    }
+        // Point the session at the synced engine (a local switch, never a pull).
+        // On failure the local engine is restored, so the practitioner is left
+        // usable.
+        if let Err(error) =
+            crate::state::ensure_synced_session(&mut guard, &config, &state.cache).await
+        {
+            return Ok(failure_from_store(error));
+        }
 
-    // Setup proves the connection with a **real round trip** — the one place a
-    // pull is wanted, because a freshly set-up computer should receive its
-    // records. The header's Reconnect button deliberately does not pull.
-    crate::log_info!("setup_connect: proving the round trip with a pull");
-    let result = match guard.session.as_ref().and_then(|session| session.engine.synced()) {
-        Some(db) => crate::cloud::pull(db).await,
-        None => Ok(false),
+        // Setup proves the connection with a **real round trip** — the one place a
+        // pull is wanted, because a freshly set-up computer should receive its
+        // records. The header's Reconnect button deliberately does not pull.
+        crate::log_info!("setup_connect: proving the round trip with a pull");
+        match guard.session.as_ref().and_then(|session| session.engine.synced()) {
+            Some(db) => crate::cloud::pull(db).await,
+            None => Ok(false),
+        }
     };
-    Ok(match result {
-        Ok(_) => connected(),
+
+    Ok(match outcome {
+        Ok(_) => {
+            // Turso first, then the files: the records have arrived, so fetch any
+            // referenced bytes this machine has not seen yet.
+            crate::cloud::download_all_files(&app).await;
+            connected()
+        }
         Err(error) => failure(&error),
     })
 }

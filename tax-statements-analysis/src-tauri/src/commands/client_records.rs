@@ -169,6 +169,7 @@ async fn apply_create_client_record(
             files::store_file(
                 config.as_ref(),
                 &state.cache,
+                Some(&app),
                 Scope::Record,
                 &name,
                 content_type.as_deref(),
@@ -241,6 +242,7 @@ async fn apply_update_client_record(
             files::store_file(
                 config.as_ref(),
                 &state.cache,
+                Some(&app),
                 Scope::Record,
                 file_name,
                 content_type.as_deref(),
@@ -319,6 +321,7 @@ async fn apply_open_client_record_file(
     let bytes = files::fetch_bytes(
         state.object_storage().as_ref(),
         &state.cache,
+        Some(&app),
         Scope::Record,
         &reference.object_key,
         &reference.file_name,
@@ -367,6 +370,7 @@ async fn apply_save_client_record_file_copy(
     let bytes = files::fetch_bytes(
         state.object_storage().as_ref(),
         &state.cache,
+        Some(&app),
         Scope::Record,
         &reference.object_key,
         &reference.file_name,

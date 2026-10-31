@@ -29,6 +29,7 @@ import type {
   StatementUpdate,
   StorageState,
   SyncResult,
+  TransferProgress,
 } from "@/domain/types";
 
 export class ValidationError extends Error {
@@ -380,6 +381,14 @@ export interface CloudRepository {
    * function; the handler fires only when a background pull changed something.
    */
   onPulled(handler: () => void): () => void;
+
+  /**
+   * Subscribe to per-file transfer progress. The handler fires as a file's bytes
+   * move in either direction, so a loader can be shown beside the affected row
+   * (purple for an upload, green for a download). Returns an unsubscribe
+   * function.
+   */
+  onTransfer(handler: (progress: TransferProgress) => void): () => void;
 }
 
 export interface SetupRepository {

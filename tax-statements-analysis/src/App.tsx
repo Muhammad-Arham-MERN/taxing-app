@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BackupReminderDialog } from "@/components/layout/BackupReminderDialog";
 import { RevealHeader } from "@/components/layout/RevealHeader";
 import { DataProvider, useRepositories } from "@/components/providers/DataProvider";
+import { TransferProgressProvider } from "@/components/providers/TransferProgressProvider";
 import { THEME_STORAGE_KEY, ThemeProvider } from "@/components/providers/ThemeProvider";
 import { SetupGate } from "@/components/onboarding/SetupGate";
 import { CloseWarningDialog } from "@/components/cloud/CloseWarningDialog";
@@ -228,7 +229,11 @@ export default function App() {
   return (
     <ThemeProvider defaultTheme="dark" storageKey={THEME_STORAGE_KEY}>
       <DataProvider>
-        <AppShell />
+        {/* Per-file transfer progress is supplied here so any table row can show
+            its own upload/download loader (FR-036's per-row counterpart). */}
+        <TransferProgressProvider>
+          <AppShell />
+        </TransferProgressProvider>
       </DataProvider>
       {/* Cloud outcomes surface here, so the header keeps its shape (FR-033). */}
       <Toaster />

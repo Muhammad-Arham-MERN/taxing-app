@@ -25,6 +25,7 @@ import {
 import { CategoryChip } from "@/components/clients/CategoryChip";
 import { CategoryFilter } from "@/components/clients/CategoryFilter";
 import { ClientRecordDialog } from "@/components/clients/ClientRecordDialog";
+import { TransferBadge } from "@/components/cloud/TransferBadge";
 import { useRepositories } from "@/components/providers/DataProvider";
 import type { Category, Client, ClientRecord } from "@/domain/types";
 import { formatDate, formatOptional, parseIsoDate, toIsoDate } from "@/lib/format";
@@ -350,6 +351,7 @@ export function ClientRecordsView({
                           >
                             {record.fileName}
                           </button>
+                          <TransferBadge fileRef={record.fileRef} />
                           <button
                             type="button"
                             aria-label="Save a copy"

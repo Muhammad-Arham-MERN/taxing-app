@@ -15,8 +15,10 @@ pub mod secrets;
 pub mod sync_state;
 pub mod usage;
 
+use crate::state::AppState;
 use crate::store::{StoreError, StoreResult};
 use std::path::Path;
+use tauri::{AppHandle, Manager};
 
 // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
 /// Open the store as a **synced** database against the shared remote.
@@ -81,3 +83,43 @@ pub async fn stats(
 ) -> Result<turso::sync::DatabaseSyncStats, StoreError> {
     Ok(db.stats().await?)
 }
+
+// وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+/// After a pull, fetch every referenced file this machine has not seen yet
+/// ("Turso first, then the files"). Best-effort and idempotent: files already
+/// cached are skipped, and a per-file failure only leaves that file for the
+/// practitioner's manual open/download — exactly as before.
+///
+/// The store lock is held only long enough to read the references; the network
+/// work happens with it released, so this never blocks a table read.
+pub async fn download_all_files(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let config = state.object_storage();
+    if config.is_none() {
+        crate::log_debug!("cloud::download_all_files: Oracle is not configured — skipped");
+        return;
+    }
+
+    let targets = state
+        .with_connection(|session| async move {
+            let mut targets = Vec::new();
+            for reference in crate::store::attachments::all_refs(&session.conn).await? {
+                targets.push((crate::store::object_cache::Scope::Statement, reference));
+            }
+            for reference in crate::store::client_records::all_file_refs(&session.conn).await? {
+                targets.push((crate::store::object_cache::Scope::Record, reference));
+            }
+            Ok(targets)
+        })
+        .await
+        .unwrap_or_default();
+
+    if targets.is_empty() {
+        crate::log_debug!("cloud::download_all_files: no files are referenced yet");
+        return;
+    }
+
+    crate::files::fetch_missing(config.as_ref(), &state.cache, Some(app), &targets).await;
+}
+
+// وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

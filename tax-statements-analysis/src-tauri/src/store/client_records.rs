@@ -24,6 +24,9 @@ pub struct Record {
     pub remarks: Option<String>,
     pub category_id: Option<String>,
     pub file_name: Option<String>,
+    /// The file's **object key**, so a transfer in progress can be matched to
+    /// this row (the bytes themselves never travel).
+    pub file_ref: Option<String>,
     pub created_at: String,
 }
 
@@ -80,7 +83,7 @@ pub struct RecordUpdate {
 /// The columns every read shares. The file's bytes are never selected here — only
 /// the file's name, which is all a list needs.
 const RECORD_COLUMNS: &str = "r.id, r.cnic, r.name, r.occurred_on, r.remarks, \
-                              r.category_id, r.created_at, f.file_name";
+                              r.category_id, r.created_at, f.file_name, f.object_key";
 
 fn text_at(row: &turso::Row, index: usize) -> String {
     match row.get_value(index) {
@@ -106,6 +109,7 @@ fn row_to_record(row: &turso::Row) -> Record {
         category_id: optional_text_at(row, 5),
         created_at: text_at(row, 6),
         file_name: optional_text_at(row, 7),
+        file_ref: optional_text_at(row, 8),
     }
 }
 
@@ -214,6 +218,7 @@ pub async fn create(
         remarks: input.remarks.clone(),
         category_id: input.category_id.clone(),
         file_name: attachment.map(|payload| payload.file_name.clone()),
+        file_ref: attachment.map(|payload| payload.object_key.clone()),
         created_at: now,
     })
 }
@@ -330,6 +335,31 @@ pub async fn reference_opt(conn: &Connection, id: &str) -> StoreResult<Option<At
         content_type: optional_text_at(&row, 2),
         object_key: text_at(&row, 3),
     }))
+}
+
+/// Every record file reference, for the post-pull fetch of files this machine
+/// has not seen yet. Reads references only — never bytes.
+pub async fn all_file_refs(conn: &Connection) -> StoreResult<Vec<AttachmentRef>> {
+    let mut rows = conn
+        .query(
+            "SELECT file_name, byte_size, content_type, object_key FROM client_record_files",
+            (),
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(AttachmentRef {
+            file_name: text_at(&row, 0),
+            byte_size: match row.get_value(1)? {
+                Value::Integer(number) => number,
+                _ => 0,
+            },
+            content_type: optional_text_at(&row, 2),
+            object_key: text_at(&row, 3),
+        });
+    }
+    crate::log_debug!("client_records::all_file_refs: {} reference(s)", out.len());
+    Ok(out)
 }
 
 // وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

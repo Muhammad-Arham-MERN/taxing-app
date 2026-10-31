@@ -103,4 +103,17 @@ pub async fn reference_opt(
     Ok(rows.next().await?.map(|row| row_to_ref(&row)))
 }
 
+/// Every statement's file reference, for the post-pull fetch of files this
+/// machine has not seen yet. Reads references only — never bytes.
+pub async fn all_refs(conn: &Connection) -> StoreResult<Vec<AttachmentRef>> {
+    let sql = format!("SELECT {COLUMNS} FROM attachments");
+    let mut rows = conn.query(&sql, ()).await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(row_to_ref(&row));
+    }
+    crate::log_debug!("attachments::all_refs: {} reference(s)", out.len());
+    Ok(out)
+}
+
 // وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

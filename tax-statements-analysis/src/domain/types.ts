@@ -127,11 +127,16 @@ export interface ClientRecord {
   remarks: string | null;
   categoryId: string | null;
   fileName: string | null;
+  /** The file's object key, so an in-flight transfer can be matched to this row. */
+  fileRef: string | null;
   createdAt: string;
 }
 
 /** A new record as entered on the form (id, file name and timestamp are assigned). */
-export type NewClientRecord = Omit<ClientRecord, "id" | "createdAt" | "fileName">;
+export type NewClientRecord = Omit<
+  ClientRecord,
+  "id" | "createdAt" | "fileName" | "fileRef"
+>;
 
 /** An edit: the record's identity plus the values that may change. */
 export interface ClientRecordUpdate {
@@ -286,6 +291,26 @@ export interface SyncResult {
   outcome: SyncOutcome;
   /** pull: did anything arrive? push: did anything send? */
   changed: boolean;
+}
+
+/** Which way a file's bytes are moving, for the row's inline loader. */
+export type TransferDirection = "upload" | "download";
+
+/**
+ * One progress update for a file upload or download, pushed from the backend as
+ * `cloud://transfer`. The `id` is the file's object key — the same value the row
+ * carries as `fileRef` — so the loader can be drawn beside the exact entry.
+ */
+export interface TransferProgress {
+  id: string;
+  direction: TransferDirection;
+  fileName: string;
+  transferred: number;
+  total: number;
+  /** True on the final event, whether it succeeded or failed. */
+  done: boolean;
+  /** Set only when the transfer failed. */
+  error: string | null;
 }
 
 /** Turso Cloud storage headroom for the header gauge (FR-029–FR-032). */

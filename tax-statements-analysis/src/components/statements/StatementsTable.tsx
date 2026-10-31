@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useRepositories } from "@/components/providers/DataProvider";
+import { TransferBadge } from "@/components/cloud/TransferBadge";
 import { EditStatementDialog } from "@/components/statements/EditStatementDialog";
 import type { Statement } from "@/domain/types";
 import { formatAmount, formatDate, formatOptional } from "@/lib/format";
@@ -132,6 +133,7 @@ export function StatementsTable({ statements, onChanged }: StatementsTableProps)
               >
                 {fileName}
               </button>
+              <TransferBadge fileRef={row.original.fileRef} />
               <button
                 type="button"
                 aria-label="Save a copy"

@@ -84,7 +84,7 @@ pub struct StatementUpdate {
 /// store holds only the reference now, and the name is all a list needs
 /// (research R3, data-model §1.2).
 const STATEMENT_COLUMNS: &str = "s.id, s.occurred_on, s.kind, s.nature, s.amount_minor, \
-                                 s.remarks, s.created_at, a.file_name";
+                                 s.remarks, s.created_at, a.file_name, a.object_key";
 
 fn row_to_statement(row: &turso::Row) -> StoreResult<Statement> {
     let minor = match row.get_value(4)? {
@@ -100,7 +100,7 @@ fn row_to_statement(row: &turso::Row) -> StoreResult<Statement> {
         remarks: optional_text_at(row, 5),
         created_at: text_at(row, 6),
         file_name: optional_text_at(row, 7),
-        file_ref: None,
+        file_ref: optional_text_at(row, 8),
     })
 }
 
@@ -184,7 +184,7 @@ pub async fn create(
         amount: input.amount,
         remarks: input.remarks.clone(),
         file_name: attachment.map(|payload| payload.file_name.clone()),
-        file_ref: None,
+        file_ref: attachment.map(|payload| payload.object_key.clone()),
         created_at: now,
     })
 }
