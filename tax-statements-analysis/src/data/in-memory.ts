@@ -38,6 +38,7 @@ import type {
   StorageState,
   SyncOutcome,
   SyncResult,
+  TransferProgress,
 } from "@/domain/types";
 import { newStatementSchema } from "@/domain/validation";
 import {
@@ -524,6 +525,9 @@ export class InMemoryClientRecordRepository implements ClientRecordRepository {
       remarks: input.remarks,
       categoryId: input.categoryId,
       fileName: attachment?.fileName ?? null,
+      // The twin has no object keys; the record's own id stands in as one so a
+      // transfer can be matched to this row in tests.
+      fileRef: attachment ? id : null,
       createdAt: new Date().toISOString(),
     };
     if (attachment) {
@@ -561,6 +565,7 @@ export class InMemoryClientRecordRepository implements ClientRecordRepository {
       remarks: update.remarks,
       categoryId: update.categoryId,
       fileName,
+      fileRef: fileName ? update.id : null,
     };
     this.records[index] = updated;
     return { ...updated };
@@ -769,6 +774,7 @@ export class InMemoryCloudRepository implements CloudRepository {
   private readonly objectUsageValue: ObjectUsage | null;
   private readonly reconnectValue: ReconnectResult;
   private readonly handlers = new Set<() => void>();
+  private readonly transferHandlers = new Set<(progress: TransferProgress) => void>();
 
   constructor(options: CloudTwinOptions = {}) {
     this.configured = options.configured ?? true;
@@ -850,6 +856,18 @@ export class InMemoryCloudRepository implements CloudRepository {
   onPulled(handler: () => void): () => void {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
+  }
+
+  onTransfer(handler: (progress: TransferProgress) => void): () => void {
+    this.transferHandlers.add(handler);
+    return () => this.transferHandlers.delete(handler);
+  }
+
+  /** Test helper: pretend a file transfer made progress. */
+  emitTransfer(progress: TransferProgress): void {
+    for (const handler of [...this.transferHandlers]) {
+      handler(progress);
+    }
   }
 
   /** Test helper: pretend a background pull brought something. */

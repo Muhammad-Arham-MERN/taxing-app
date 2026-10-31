@@ -15,6 +15,7 @@ mod settings;
 mod state;
 mod store;
 mod temp;
+mod transfer;
 
 // Updates belong to installed copies only. A development run must never be
 // replaced by a downloaded release, so the module is not compiled at all in a

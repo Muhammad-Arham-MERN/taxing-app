@@ -75,6 +75,7 @@ import type {
   StatementUpdate,
   StorageState,
   SyncResult,
+  TransferProgress,
 } from "@/domain/types";
 
 /** Where the statement's own fields travel when the body holds a file. */
@@ -402,6 +403,9 @@ export class TauriClientRecordRepository implements ClientRecordRepository {
 /** The event the background sync task emits after an automatic pull (R9). */
 const PULLED_EVENT = "cloud://pulled";
 
+/** The event the backend emits for each file-upload/download progress update. */
+const TRANSFER_EVENT = "cloud://transfer";
+
 export class TauriCloudRepository implements CloudRepository {
   async status(): Promise<CloudStatus> {
     return call<CloudStatus>("cloud_status");
@@ -443,6 +447,30 @@ export class TauriCloudRepository implements CloudRepository {
         dispose = unlisten;
       }
     });
+
+    return () => {
+      disposed = true;
+      dispose?.();
+    };
+  }
+
+  /**
+   * Subscribe to per-file transfer progress. Returns a disposer that unlistens
+   * even if it is called before the listener finished registering.
+   */
+  onTransfer(handler: (progress: TransferProgress) => void): () => void {
+    let dispose: (() => void) | null = null;
+    let disposed = false;
+
+    void listen<TransferProgress>(TRANSFER_EVENT, (event) => handler(event.payload)).then(
+      (unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          dispose = unlisten;
+        }
+      },
+    );
 
     return () => {
       disposed = true;

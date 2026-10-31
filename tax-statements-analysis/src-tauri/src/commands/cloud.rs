@@ -138,7 +138,7 @@ async fn apply_cloud_push(
     // references are published, so another computer never pulls a reference to
     // an object that is not in Oracle yet (the local-first upload queue).
     let object_config = state.object_storage();
-    let uploads = files::drain_pending(object_config.as_ref(), &state.cache).await;
+    let uploads = files::drain_pending(object_config.as_ref(), &state.cache, Some(&app)).await;
     if uploads.failed > 0 {
         crate::log_warn!(
             "cloud_push: {} file(s) could not be uploaded yet and stay local",
@@ -198,9 +198,12 @@ async fn apply_cloud_push(
 /// (FR-013–FR-020). `changed` is the engine's own answer; a pull **never** clears
 /// the un-pushed marker (a pull does not publish local work).
 #[tauri::command]
-pub async fn cloud_pull(state: State<'_, AppState>) -> Result<SyncResult, CommandError> {
+pub async fn cloud_pull(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SyncResult, CommandError> {
     crate::log_info!("-> cloud_pull");
-    let result = apply_cloud_pull(state).await;
+    let result = apply_cloud_pull(app, state).await;
     if let Ok(ref sync) = result {
         crate::log_info!(
             "cloud_pull: outcome={:?} changed={} — {}",
@@ -213,7 +216,10 @@ pub async fn cloud_pull(state: State<'_, AppState>) -> Result<SyncResult, Comman
     result
 }
 
-async fn apply_cloud_pull(state: State<'_, AppState>) -> Result<SyncResult, CommandError> {
+async fn apply_cloud_pull(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SyncResult, CommandError> {
     require_store(&state).await?;
 
     if !config::is_configured() {
@@ -241,6 +247,14 @@ async fn apply_cloud_pull(state: State<'_, AppState>) -> Result<SyncResult, Comm
             }
         })
         .await?;
+
+    // Turso first, then the files: once the references have arrived, fetch any
+    // file bytes this machine has not seen yet (best-effort; a failure leaves the
+    // file for the practitioner's manual download). Runs after **every**
+    // successful pull and is idempotent, because it only fetches what is missing.
+    if result.kind == SyncOutcomeKind::Success {
+        crate::cloud::download_all_files(&app).await;
+    }
 
     Ok(SyncResult {
         outcome: result,

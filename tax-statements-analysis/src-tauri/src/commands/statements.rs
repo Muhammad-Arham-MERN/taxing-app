@@ -180,6 +180,7 @@ async fn apply_create_statement(
             files::store_file(
                 config.as_ref(),
                 &state.cache,
+                Some(&app),
                 Scope::Statement,
                 &name,
                 content_type.as_deref(),
@@ -298,6 +299,7 @@ async fn apply_update_statement(
             files::store_file(
                 config.as_ref(),
                 &state.cache,
+                Some(&app),
                 Scope::Statement,
                 file_name,
                 content_type.as_deref(),

@@ -50,7 +50,7 @@ async fn drain_pending_quietly(app: &AppHandle) {
     if config.is_none() {
         return;
     }
-    let report = crate::files::drain_pending(config.as_ref(), &state.cache).await;
+    let report = crate::files::drain_pending(config.as_ref(), &state.cache, Some(app)).await;
     if report.uploaded > 0 || report.failed > 0 {
         crate::log_info!(
             "schedule::drain_pending_quietly: uploaded={} failed={} remaining={}",
@@ -101,6 +101,10 @@ async fn pull_once(app: &AppHandle) {
     if changed {
         crate::log_info!("schedule::pull_once: changes arrived — telling the frontend to refresh");
         let _ = app.emit(PULLED_EVENT, ());
+        // Turso first, then the files: fetch any referenced bytes this machine
+        // has not seen yet, so a file attached elsewhere opens locally. Emitting
+        // the refresh event first means the rows exist to show the loaders beside.
+        crate::cloud::download_all_files(app).await;
     } else {
         crate::log_debug!("schedule::pull_once: nothing changed");
     }

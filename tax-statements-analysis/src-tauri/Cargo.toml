@@ -55,6 +55,14 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "j
 # is never consulted.
 aws-sdk-s3 = "1"
 
+# `bytes` and `http-body` build the counting request body that reports upload
+# progress as the SDK draws each frame (`cloud/object_store.rs`), and read the
+# download response one frame at a time. Both are already in the tree
+# transitively (via the AWS SDK), so naming them adds no new compilation — only
+# the ability to reach them from this crate.
+bytes = "1"
+http-body = "1"
+
 # rustls is not used directly, but two of our dependencies compile it with
 # different crypto providers: `tauri-plugin-updater` enables `ring` while
 # `reqwest` / the Turso sync stack enable `aws-lc-rs`. With both present rustls

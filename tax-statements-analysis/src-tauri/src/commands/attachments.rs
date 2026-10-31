@@ -55,6 +55,7 @@ async fn apply_open_attachment(
     let bytes = files::fetch_bytes(
         state.object_storage().as_ref(),
         &state.cache,
+        Some(&app),
         Scope::Statement,
         &reference.object_key,
         &reference.file_name,
@@ -116,6 +117,7 @@ async fn apply_save_attachment_copy(
     let bytes = files::fetch_bytes(
         state.object_storage().as_ref(),
         &state.cache,
+        Some(&app),
         Scope::Statement,
         &reference.object_key,
         &reference.file_name,
