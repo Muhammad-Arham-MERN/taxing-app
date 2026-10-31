@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useCreationLock } from "@/components/providers/CreationLockProvider";
 import { useRepositories } from "@/components/providers/DataProvider";
 import { FileAttachmentField } from "@/components/statements/FileAttachmentField";
 import { NoiseButton } from "@/components/statements/NoiseButton";
@@ -46,6 +47,9 @@ export interface CreateStatementFormProps {
 
 export function CreateStatementForm({ onCreated }: CreateStatementFormProps) {
   const { statements } = useRepositories();
+  // Writing a statement can be slow when a file rides along: hold the whole
+  // interface still until it settles so the entry cannot be interrupted.
+  const lock = useCreationLock();
   // The chosen file is held in full, not just by name: the store keeps its
   // contents, so the name alone would lose the file (FR-003).
   const [attachment, setAttachment] = useState<AttachmentPayload | null>(null);
@@ -83,6 +87,7 @@ export function CreateStatementForm({ onCreated }: CreateStatementFormProps) {
     submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
+    const lockToken = lock.begin("Creating your statement…");
 
     try {
       await statements.create(
@@ -97,6 +102,7 @@ export function CreateStatementForm({ onCreated }: CreateStatementFormProps) {
         error instanceof Error ? error.message : "Unable to record the statement.",
       );
     } finally {
+      lock.end(lockToken);
       submittingRef.current = false;
       setSubmitting(false);
     }

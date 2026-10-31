@@ -4,6 +4,7 @@ import { cn } from "cn";
 import { LuKeyRound, LuUpload } from "react-icons/lu";
 import { SyncProgress } from "@/components/cloud/SyncProgress";
 import { useRepositories } from "@/components/providers/DataProvider";
+import type { SetupConnectResult } from "@/domain/types";
 
 export interface SecretsDialogProps {
   /** Called only after the cloud connection has been proven, so the caller can
@@ -15,6 +16,34 @@ export interface SecretsDialogProps {
 
 /** Which step of the exchange is running, so the loader can be exact. */
 type Phase = "idle" | "reading" | "connecting";
+
+/**
+ * How long the cloud round trip may hold the whole application. Past this the
+ * screen is released (the values are already saved), so a slow first pull never
+ * traps the practitioner behind the setup overlay.
+ */
+const CONNECT_BUDGET_MS = 15_000;
+
+/**
+ * Await the connection proof, but give up after the budget and resolve `null`.
+ * A late rejection is swallowed so it never surfaces as an unhandled promise.
+ */
+function connectWithinBudget(attempt: Promise<SetupConnectResult>): Promise<SetupConnectResult | null> {
+  attempt.catch(() => undefined);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), CONNECT_BUDGET_MS);
+    attempt.then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
 
 // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
 /**
@@ -54,10 +83,12 @@ export function SecretsDialog({ onSaved, replacing = false }: SecretsDialogProps
         return;
       }
 
-      // Saved. Now prove the cloud is reachable; only then is the app usable.
+      // Saved. Now prove the cloud is reachable — but never hold the screen for
+      // longer than the budget. Once connected, or once the budget elapses, the
+      // values are stored, so the overlay is released either way.
       setPhase("connecting");
-      const connected = await setup.connect();
-      if (!connected.ok) {
+      const connected = await connectWithinBudget(setup.connect());
+      if (connected && !connected.ok) {
         setError(`${connected.message} Check the file and choose it again.`);
         return;
       }

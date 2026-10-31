@@ -101,15 +101,15 @@ pub fn new_object_key() -> String {
 }
 
 // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
-/// Persist a file's bytes: cache locally first, then best-effort upload.
+/// Persist a file's bytes **locally only**.
 ///
-/// The write **never fails for want of a network** — if Oracle is not configured
-/// or not reachable, the bytes stay in the local cache marked pending and the
-/// returned reference is still complete, so the record can be saved offline.
+/// The bytes are written to the cache marked pending; the trip to Oracle is
+/// deferred to [`drain_pending`], which runs at startup, on the timed cycle and —
+/// crucially — **before every Push**. This is what makes a save purely local:
+/// recording a statement or a record never touches the network, however large the
+/// file, so creating an entry can never be held up by an upload.
 pub async fn store_file(
-    config: Option<&ObjectStoreConfig>,
     cache: &ObjectCache,
-    app: Option<&AppHandle>,
     scope: Scope,
     file_name: &str,
     content_type: Option<&str>,
@@ -117,45 +117,16 @@ pub async fn store_file(
 ) -> StoreResult<AttachmentRef> {
     let object_key = new_object_key();
     crate::log_info!(
-        "files::store_file: '{}' ({} bytes) as {object_key}",
+        "files::store_file: '{}' ({} bytes) as {object_key} (queued locally for upload)",
         file_name,
         bytes.len()
     );
 
-    // Local first: the file is on this machine the moment the record is saved.
+    // The file is on this machine the moment the record is saved; the pending
+    // marker (`uploaded = 0`) is what the next drain picks up.
     cache
         .put(&object_key, scope, file_name, content_type, bytes)
         .await?;
-
-    // Then Oracle, when it is configured. A failure is not fatal: the row stays
-    // pending and `drain_pending` will send it on the next online moment.
-    if let Some(config) = config {
-        let (reporter, sink) = start_transfer(
-            app,
-            Direction::Upload,
-            &object_key,
-            file_name,
-            bytes.len() as u64,
-        );
-        match upload_one(config, cache, &object_key, content_type, bytes, sink).await {
-            Ok(()) => {
-                if let Some(reporter) = reporter {
-                    reporter.finished();
-                }
-                crate::log_info!("files::store_file: {object_key} uploaded to Oracle");
-            }
-            Err(error) => {
-                if let Some(reporter) = reporter {
-                    reporter.failed(&error.0);
-                }
-                crate::log_warn!(
-                    "files::store_file: {object_key} kept locally; upload deferred: {error}"
-                );
-            }
-        }
-    } else {
-        crate::log_debug!("files::store_file: Oracle not configured — upload deferred");
-    }
 
     Ok(AttachmentRef {
         file_name: file_name.to_string(),

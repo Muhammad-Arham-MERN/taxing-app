@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BackupReminderDialog } from "@/components/layout/BackupReminderDialog";
 import { RevealHeader } from "@/components/layout/RevealHeader";
+import { CreationLockProvider, useCreationLock } from "@/components/providers/CreationLockProvider";
 import { DataProvider, useRepositories } from "@/components/providers/DataProvider";
 import { TransferProgressProvider } from "@/components/providers/TransferProgressProvider";
 import { THEME_STORAGE_KEY, ThemeProvider } from "@/components/providers/ThemeProvider";
@@ -90,6 +91,9 @@ function ViewTab({
 
 function AppShell() {
   const { storage, storageState, refreshStorage } = useRepositories();
+  // True while a record with a file is being written: the tabs and every other
+  // action are held still so the entry can finish without interference.
+  const { locked } = useCreationLock();
   const [refreshKey, setRefreshKey] = useState(0);
   const [chooserOpen, setChooserOpen] = useState(false);
 
@@ -136,8 +140,12 @@ function AppShell() {
                   Statements
                 </span>
                 <TabsList>
-                  <TabsTrigger value="create-statement">Create</TabsTrigger>
-                  <TabsTrigger value="view-statements">View</TabsTrigger>
+                  <TabsTrigger value="create-statement" disabled={locked}>
+                    Create
+                  </TabsTrigger>
+                  <TabsTrigger value="view-statements" disabled={locked}>
+                    View
+                  </TabsTrigger>
                 </TabsList>
               </div>
 
@@ -146,8 +154,12 @@ function AppShell() {
                   Bills
                 </span>
                 <TabsList>
-                  <TabsTrigger value="create-bill">Create</TabsTrigger>
-                  <TabsTrigger value="view-bills">View</TabsTrigger>
+                  <TabsTrigger value="create-bill" disabled={locked}>
+                    Create
+                  </TabsTrigger>
+                  <TabsTrigger value="view-bills" disabled={locked}>
+                    View
+                  </TabsTrigger>
                 </TabsList>
               </div>
 
@@ -156,8 +168,12 @@ function AppShell() {
                   Clients
                 </span>
                 <TabsList>
-                  <TabsTrigger value="create-client">Create</TabsTrigger>
-                  <TabsTrigger value="view-clients">View</TabsTrigger>
+                  <TabsTrigger value="create-client" disabled={locked}>
+                    Create
+                  </TabsTrigger>
+                  <TabsTrigger value="view-clients" disabled={locked}>
+                    View
+                  </TabsTrigger>
                 </TabsList>
               </div>
             </div>
@@ -232,7 +248,9 @@ export default function App() {
         {/* Per-file transfer progress is supplied here so any table row can show
             its own upload/download loader (FR-036's per-row counterpart). */}
         <TransferProgressProvider>
-          <AppShell />
+          <CreationLockProvider>
+            <AppShell />
+          </CreationLockProvider>
         </TransferProgressProvider>
       </DataProvider>
       {/* Cloud outcomes surface here, so the header keeps its shape (FR-033). */}

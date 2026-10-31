@@ -1,5 +1,5 @@
 // بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيمِ
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import { FileDropField } from "@/components/ui/file-drop-field";
 import { CategorySelect } from "@/components/clients/CategorySelect";
+import { useCreationLock } from "@/components/providers/CreationLockProvider";
 import { useRepositories } from "@/components/providers/DataProvider";
 import type { AttachmentPayload, Category, Client, ClientRecord } from "@/domain/types";
 import { parseIsoDate, toIsoDate, todayIso } from "@/lib/format";
@@ -60,11 +61,16 @@ export function ClientRecordDialog({
   onSaved,
 }: ClientRecordDialogProps) {
   const { clientRecords } = useRepositories();
+  // A record's file can be large, so a save is held as an uninterruptible write:
+  // the rest of the interface is locked and the dialog cannot be dismissed.
+  const lock = useCreationLock();
   const [draft, setDraft] = useState<Draft>(() => emptyDraft());
   const [pending, setPending] = useState<AttachmentPayload | null>(null);
   const [removed, setRemoved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Read by the close guards, which fire before React has re-rendered `saving`.
+  const savingRef = useRef(false);
 
   const editing = record !== null;
 
@@ -85,6 +91,8 @@ export function ClientRecordDialog({
     setPending(null);
     setRemoved(false);
     setError(null);
+    setSaving(false);
+    savingRef.current = false;
   }, [open, record]);
 
   const storedStillAttached = editing && !pending && !removed && Boolean(record?.fileName);
@@ -114,11 +122,13 @@ export function ClientRecordDialog({
   }
 
   async function save() {
-    if (!ready) {
+    if (!ready || savingRef.current) {
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     setError(null);
+    const lockToken = lock.begin("Saving this record…");
     try {
       const values = {
         cnic: client.cnic,
@@ -146,17 +156,44 @@ export function ClientRecordDialog({
       }
 
       onSaved();
+      // The write succeeded: allow this close even though the lock is still held
+      // until the `finally` below releases it.
+      savingRef.current = false;
       onOpenChange(false);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The record could not be saved.");
     } finally {
+      savingRef.current = false;
+      lock.end(lockToken);
       setSaving(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Unclosable for as long as the record is being written.
+        if (savingRef.current) {
+          return;
+        }
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-2xl"
+        showCloseButton={!saving}
+        onEscapeKeyDown={(event) => {
+          if (savingRef.current) {
+            event.preventDefault();
+          }
+        }}
+        onInteractOutside={(event) => {
+          if (savingRef.current) {
+            event.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{editing ? "Edit record" : "New record"}</DialogTitle>
           <DialogDescription>{client.name} ({client.cnic})</DialogDescription>

@@ -137,8 +137,6 @@ async fn apply_create_statement(
     state: State<'_, AppState>,
     request: Request<'_>,
 ) -> Result<Statement, CommandError> {
-    let config = state.object_storage();
-
     // Parse the request first, but **do not** move the file's bytes yet: the
     // values are checked below, and a rejected statement must not leave an
     // orphaned object in the store or in Oracle.
@@ -174,19 +172,12 @@ async fn apply_create_statement(
         return Err(CommandError::validation(fields));
     }
 
-    // Valid. Now record the file (cache-first) and keep its reference.
+    // Valid. Now record the file **locally** (the upload is deferred to the next
+    // drain, so a large file never holds the save up) and keep its reference.
     let attachment = match raw_file {
         Some((name, content_type, bytes)) => Some(
-            files::store_file(
-                config.as_ref(),
-                &state.cache,
-                Some(&app),
-                Scope::Statement,
-                &name,
-                content_type.as_deref(),
-                &bytes,
-            )
-            .await?,
+            files::store_file(&state.cache, Scope::Statement, &name, content_type.as_deref(), &bytes)
+                .await?,
         ),
         None => None,
     };
@@ -254,8 +245,6 @@ async fn apply_update_statement(
     state: State<'_, AppState>,
     request: Request<'_>,
 ) -> Result<Statement, CommandError> {
-    let config = state.object_storage();
-
     let mut update: StatementUpdate = if is_raw(&request) {
         meta_from::<UpdateJson>(&request)?.update
     } else {
@@ -296,16 +285,8 @@ async fn apply_update_statement(
             ));
         }
         *reference = Some(
-            files::store_file(
-                config.as_ref(),
-                &state.cache,
-                Some(&app),
-                Scope::Statement,
-                file_name,
-                content_type.as_deref(),
-                &incoming,
-            )
-            .await?,
+            files::store_file(&state.cache, Scope::Statement, file_name, content_type.as_deref(), &incoming)
+                .await?,
         );
     }
 
