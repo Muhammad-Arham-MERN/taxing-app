@@ -271,32 +271,38 @@ async fn copy_bill(dst: &Connection, src: &Connection, id: &str) -> StoreResult<
 async fn copy_items(dst: &Connection, src: &Connection, bill_id: &str) -> StoreResult<()> {
     let mut rows = src
         .query(
-            "SELECT id, position, details, amount_minor
+            "SELECT id, position, details, amount_minor, crossed_minor
                FROM bill_items WHERE bill_id = ?1 ORDER BY position ASC",
             [bill_id],
         )
         .await?;
     let mut items = Vec::new();
     while let Some(row) = rows.next().await? {
+        let crossed_minor = match row.get_value(4) {
+            Ok(Value::Integer(number)) => Some(number),
+            _ => None,
+        };
         items.push((
             text_at(&row, 0),
             integer_at(&row, 1),
             text_at(&row, 2),
             integer_at(&row, 3),
+            crossed_minor,
         ));
     }
     drop(rows);
 
-    for (item_id, position, details, amount_minor) in items {
+    for (item_id, position, details, amount_minor, crossed_minor) in items {
         dst.execute(
-            "INSERT INTO bill_items (id, bill_id, position, details, amount_minor)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO bill_items (id, bill_id, position, details, amount_minor, crossed_minor)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             (
                 item_id.as_str(),
                 bill_id,
                 position,
                 details.as_str(),
                 amount_minor,
+                crossed_minor,
             ),
         )
         .await?;

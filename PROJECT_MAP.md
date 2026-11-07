@@ -4,7 +4,7 @@
 
 > **Single entry point for any agentic run.** Read this file first. It maps every folder, every file and every function in the repository, with references, so a full cross-project scan is not needed before starting work.
 
-**Last verified against source:** 2026-10-24 (Oracle Object Storage for file bytes, schema v8, cloud-migration CI)
+**Last verified against source:** 2026-11-07 (Oracle Object Storage for file bytes, schema v8, cloud-migration CI, schema-change rules)
 **Current feature branch:** `004-cloud-sync`
 **Main branch:** `main`
 
@@ -60,7 +60,7 @@ tax-input-system/
 ├── *.jpeg                         # UI/branding reference image
 ├── .specify/                      # SpecKit Plus scaffolding (constitution, templates, scripts)
 ├── specs/                         # Feature specs (001–004), each with spec/plan/tasks/contracts/...
-├── migrations/                    # CI cloud-database migrations (Node scripts, run on release)
+├── migrations/                    # CI cloud-database migrations (Node scripts: `object-storage` v7→v8, `bill-items-crossed`)
 ├── history/prompts/               # Prompt History Records (PHRs) per SDD stage
 ├── .claude/commands/              # 13 `/sp.*` SDD slash-command definitions (mirror of .commandcode)
 ├── .commandcode/                  # Slash commands + taste profile (auto-managed, DO NOT hand-edit taste)
@@ -129,10 +129,10 @@ A full in-memory twin of every repository used by tests and by the browser build
 
 | File | Responsibility | Key exports |
 |---|---|---|
-| `types.ts` | The shared domain vocabulary — **every cross-layer type lives here.** | `StatementType`, `Statement`, `NewStatement`, `BusinessProfile`, `StatementFilter`, `StatementSummary`, `AttachmentPayload`, `AttachmentChange`, `StatementUpdate`, `StorageLocation`, `StorageProblem`, `StorageState`, `CarryAcrossChoice`, `LocationRisk`, `LocationAssessment`, `Customer`, `Client` (now carrying `password` + `categoryId`), `Category`, `CategoryInput`, `ClientRecord`, `NewClientRecord`, `ClientRecordUpdate`, `BillItem`, `NewBillItem`, `Bill`, `NewBill`, `BillUpdate`, `BillFilter`, `BillSummary`, `CloudPhase`, `CloudStatus`, `SetupState`, `SecretsPasteResult`, `SetupConnectResult`, `SyncOutcomeKind`, `SyncOutcome`, `SyncResult`, `CloudUsage`, `ObjectUsage`, `ReconnectResult` |
+| `types.ts` | The shared domain vocabulary — **every cross-layer type lives here.** | `StatementType`, `Statement`, `NewStatement`, `BusinessProfile`, `StatementFilter`, `StatementSummary`, `AttachmentPayload`, `AttachmentChange`, `StatementUpdate`, `StorageLocation`, `StorageProblem`, `StorageState`, `CarryAcrossChoice`, `LocationRisk`, `LocationAssessment`, `Customer`, `Client` (now carrying `password` + `categoryId`), `Category`, `CategoryInput`, `ClientRecord`, `NewClientRecord`, `ClientRecordUpdate`, `BillItem`/`NewBillItem` (optional `crossed`), `Bill`, `NewBill`, `BillUpdate`, `BillFilter`, `BillSummary`, `CloudPhase`, `CloudStatus`, `SetupState`, `SecretsPasteResult`, `SetupConnectResult`, `SyncOutcomeKind`, `SyncOutcome`, `SyncResult`, `CloudUsage`, `ObjectUsage`, `ReconnectResult` |
 | `validation.ts` | Zod schemas + coercion for statements (form & persisted). | `statementTypeSchema`, `statementTypeInputSchema`, `isoDateSchema`, `amountInputSchema`, `amountSchema`, `statementFormSchema`, `newStatementSchema`, `statementFilterSchema`, `StatementFormInput/Output`, `StatementFilterValues`, `toNewStatement()` |
 | `billValidation.ts` | Zod schemas + coercion for the bill form. | `billItemInputSchema`, `billFormSchema`, `BillFormInput/Output`, `toNewBill()`, `toBillUpdate()` |
-| `identity.ts` | Fixed (non-stored) header/invoice identity constants. | `HEADER_IDENTITY`, `COMPANY_FULL_NAME`, `DEFAULT_ACCOUNT_HOLDER`, `WALLET_PLACEHOLDERS`, `BANK_DETAILS` |
+| `identity.ts` | Fixed (non-stored) header/invoice identity constants. | `HEADER_IDENTITY`, `COMPANY_FULL_NAME`, `DEFAULT_ACCOUNT_HOLDER`, `WALLET_PLACEHOLDERS`, `BANK_DETAILS`, `DEFAULT_ITEM_DETAILS` |
 | `summary.ts` | Pure date-range filter + inflow/outflow aggregation. | `isRangeValid()`, `filterByDateRange()`, `summarize()` |
 | `summary.test.ts` | Tests for `summary.ts`. | — |
 | `validation.test.ts` | Tests for the Zod schemas. | — |
@@ -175,7 +175,7 @@ A full in-memory twin of every repository used by tests and by the browser build
 | File | Responsibility | Key exports |
 |---|---|---|
 | `CreateStatementForm.tsx` / `.test.tsx` | Create Statements form (type/nature/amount/remarks/file); blocked until valid; in-flight guarded. | `CreateStatementForm` |
-| `StatementsTable.tsx` / `.test.tsx` | TanStack-table list with file open/save-copy, pagination, edit dialog. | `StatementsTable`, `STATEMENTS_PAGE_SIZE` |
+| `StatementsTable.tsx` / `.test.tsx` | TanStack-table list with file open/save-copy, pagination, edit dialog; remarks truncated. | `StatementsTable`, `STATEMENTS_PAGE_SIZE` |
 | `EditStatementDialog.tsx` | Correct a stored statement; explicit keep/remove/replace file outcomes. | `EditStatementDialog` |
 | `SummaryFooter.tsx` | Total in-flow / out-flow / balance. | `SummaryFooter` |
 | `DateRangeFilter.tsx` | From/To filter with inline invalid-range message. | `createDefaultFilter()`, `DateRangeFilter` |
@@ -186,17 +186,17 @@ A full in-memory twin of every repository used by tests and by the browser build
 #### `bills/` (13 files)
 | File | Responsibility | Key exports |
 |---|---|---|
-| `CreateBillForm.tsx` / `.test.tsx` | Create Bill form; client book autofill; totals + invoice number; blocked until valid. | `CreateBillForm` |
+| `CreateBillForm.tsx` / `.test.tsx` | Create Bill form; client-book **and remembered-customer** autofill (name match fills their saved details); totals + invoice number; blocked until valid; the first item is pre-filled with the memo. | `CreateBillForm` |
 | `ViewBillsTab.tsx` | View Bills tab: combining filters, newest-first list. | `ViewBillsTab` |
-| `BillsTable.tsx` / `.test.tsx` | Paginated bill list with open/download invoice, edit, delete. | `BillsTable`, `BILLS_PAGE_SIZE` |
-| `EditBillDialog.tsx` | Correct a stored bill (items renumbered, invoice number kept). | `EditBillDialog` |
+| `BillsTable.tsx` / `.test.tsx` | Paginated bill list with open/download invoice, edit, delete; customer name and details truncated. | `BillsTable`, `BILLS_PAGE_SIZE` |
+| `EditBillDialog.tsx` | Correct a stored bill (items renumbered, invoice number kept, carries `crossed`). | `EditBillDialog` |
 | `BillFilters.tsx` | Date-range + customer filter row. | `BillFilters` |
 | `CustomerFilter.tsx` | Typeable, clearable customer drop-down. | `CustomerFilter` |
 | `CustomerDialog.tsx` | Customer detail popup opened from View Bills. | `CustomerDialog` |
-| `BillItemsEditor.tsx` | Line-item editor with auto-renumbering. | `BillItemsEditor` |
+| `BillItemsEditor.tsx` | Line-item editor with auto-renumbering and an optional **crossed** field; details default to the memo. | `BillItemsEditor` |
 | `WalletNumbersEditor.tsx` | JazzCash/Easypaisa repeatable number lists. | `WalletNumbersEditor` |
 | `BillTextField.tsx` | Shared labelled text field for bill forms. | `BillTextField`, `BillTextFieldName` |
-| `BillInvoiceDocument.tsx` | The invoice as a react-pdf `<Document>` (green theme, logo, bank footer). | `BillInvoiceDocument` |
+| `BillInvoiceDocument.tsx` | The invoice as a react-pdf `<Document>` (green theme, logo, bank footer) with a struck-through **Crossed** column. | `BillInvoiceDocument` |
 
 #### `clients/` (11 files)
 | File | Responsibility | Key exports |
@@ -209,9 +209,9 @@ A full in-memory twin of every repository used by tests and by the browser build
 | `CategoryFilter.tsx` | The dropbox beside the search: filter + create/rename/recolour/delete categories. | `CategoryFilter` |
 | `CategorySelect.tsx` | A single-category picker for the forms. | `CategorySelect` |
 | `CategoryChip.tsx` | A category shown as a coloured dot + name. | `CategoryChip` |
-| `ClientRecordsView.tsx` | A client's records table: create/edit/delete, search, multi-category + date filters. | `ClientRecordsView` |
+| `ClientRecordsView.tsx` | A client's records table: create/edit/delete, search, multi-category + date filters; name/remarks truncated. | `ClientRecordsView` |
 | `ClientRecordDialog.tsx` | Create/correct a record (name, date, remarks, category, drag-and-drop file). | `ClientRecordDialog` |
-| `ClientCombobox.tsx` | Searchable client-book picker (Popover/Input). | `ClientCombobox` |
+| `ClientCombobox.tsx` | Typeable picker offering clients **and** remembered customers (Popover/Input); stays open while the field is typed in. | `ClientCombobox` |
 
 #### `cloud/` (5 files)
 `CloudActions.tsx` (`CloudActions` — icon-only Push/Sync with spinner + toasts), `SyncProgress.tsx` (`SyncProgress`), `CloudOutcomeMessage.tsx` (`CloudOutcomeMessage`), `StorageGauge.tsx` (`StorageGauge` — Turso Cloud headroom, brand-green; `ObjectStorageGauge` — Oracle file bytes used/10 GB left + pending uploads, uses the `--oracle` purple token), `CloseWarningDialog.tsx` (`CloseWarningDialog` — push-then-close / close-anyway / cancel).
@@ -282,7 +282,7 @@ Rust 2021, Tauri v2. Architecture: **lib.rs wiring → commands (IPC handlers) �
 | File | Responsibility | Key exports |
 |---|---|---|
 | `mod.rs` | Only place the engine appears: open/verify/pragmas/identity. | consts `APPLICATION_ID=0x4D4D_5453`, `SCHEMA_VERSION=8`, `REQUIRED_TABLES_*` (…`_V8`); `enum StoreError` (+ `UnknownClient`/`UnknownCategory`/`UnknownRecord`/`FileMissing`), `type StoreResult`, `enum Verification`, `enum StoreProblem`; `build_local()`, `prepare_connection()`, `verify_read_only()`, `is_readable_database()`, `verify_connection()`, `pragma_i64()`, `table_exists()`, `app_meta_value()`, `count()`, `as_integer()` |
-| `schema.rs` | Schema creation, additive migration, identity/version stamp. | `OWNERSHIP_KEY/VALUE`, `VERSION_KEY`, DDL consts (`DDL`, `DDL_V2`, `DDL_V4`, `DDL_V6`, `DDL_V7`); `apply()`, `migrate(conn, store_file, cache)` (→v8), **`current_version()` (header, else the `app_meta` marker — a synced header reads 0)**, `column_exists()`, `now_iso()`; private `ensure_client_password_column()`, `migrate_attachments_in()`, **`move_attachments_to_objects()` / `move_record_files_to_objects()` (v7→v8, BLOB → cache + object reference)**, `civil_from_days()` |
+| `schema.rs` | Schema creation, additive migration, identity/version stamp. | `OWNERSHIP_KEY/VALUE`, `VERSION_KEY`, DDL consts (`DDL`, `DDL_V2`, `DDL_V4`, `DDL_V6`, `DDL_V7`); `apply()`, `migrate(conn, store_file, cache)` (→v8), **`current_version()` (header, else the `app_meta` marker — a synced header reads 0)**, `column_exists()`, `now_iso()`; private `ensure_client_password_column()`, `ensure_bill_item_crossed_column()` (additive, always-ensured, no version bump), `migrate_attachments_in()`, **`move_attachments_to_objects()` / `move_record_files_to_objects()` (v7→v8, BLOB → cache + object reference)**, `civil_from_days()` |
 | `statements.rs` | Statement reads/writes; one transaction per write; range queries never touch a file's bytes; amounts as integer paisa. | structs `Statement`, `NewStatement`, `enum AttachmentAction` (a `Replace` carries an `AttachmentRef`), `StatementUpdate`; `to_minor()`, `from_minor()`, `create()`, `list_range()`, `get()`, `update()`, `delete()` |
 | `bills.rs` | Bills: unique never-reused invoice numbers; totals summed in SQL. | structs `BillItem`, `Bill`, `NewBillItem`, `NewBill`, `BillUpdate`, `BillSummary`; `create()`, `get()`, `list()`, `update()`, `delete()`; private `allocate_invoice_no()`, `insert_items()`, `insert_wallets()`, `load_wallets()`, `load_items()`, `total_of()` |
 | `clients.rs` | Client contact book keyed by CNIC; contacts in their own rows; carries the client's password and category. | struct `Client`; `upsert_within()` (merge), `update_within()` (replace), `list()`, `get()`, `delete()`; private `contact_lists()`, `insert_contacts()` |
@@ -397,7 +397,7 @@ Tables (all in the single `tax-statements.sqlite`):
 - `customers` — name (NOCASE key), address, contact_person, contact_number, email, ntn, password.
 - `clients` (+ client contact rows) — cnic (key), name, company, **password**, **category_id** (v7), phones[], whatsapps[], emails[].
 - `bills` — id, invoice_no, invoice_seq, date, customer_name, account_holder, created_at.
-- `bill_items` — bill_id, id, position, details, amount.
+- `bill_items` — bill_id, id, position, details, amount, **`crossed_minor`** (optional struck-through value shown beside the amount; never totalled; added **additively** with no `SCHEMA_VERSION` bump — 2026-11).
 - `bill_wallets` — bill_id, kind (jazzcash/easypaisa), position, number.
 - `categories` (v7) — id, name (NOCASE unique), color, created_at, updated_at. One global list shared by clients and records.
 - `client_records` (v7) — id, cnic (FK → clients, cascade), name, date, remarks, category_id, created_at, updated_at; index `(cnic, date DESC, created_at DESC)`.

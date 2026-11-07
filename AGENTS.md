@@ -11,6 +11,7 @@
 1. **Read `PROJECT_MAP.md` before exploring the codebase.** Do not do a full cross-project scan; the map is the index.
 2. **Keep it in sync.** Whenever you add, rename, move or delete a folder, file, function, Tauri command, schema element or repository interface, **update `PROJECT_MAP.md` in the same change** (see its §10 "Maintenance Protocol").
 3. **Bump the "Last verified" date** in `PROJECT_MAP.md` after editing it.
+4. **Changing the database schema?** Read **`DATABASE_MIGRATIONS.md`** first. It lists the explicit prohibitions on schema changes and on relying on Turso sync replay to apply them.
 
 ## Project at a glance
 

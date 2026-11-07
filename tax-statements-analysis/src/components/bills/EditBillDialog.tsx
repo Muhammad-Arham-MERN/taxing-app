@@ -58,7 +58,7 @@ function emptyBillForm(): BillFormInput {
     jazzcashNumbers: [{ number: "" }],
     easypaisaNumbers: [{ number: "" }],
     accountHolder: "",
-    items: [{ details: "", amount: "" }],
+    items: [{ details: "", amount: "", crossed: "" }],
   };
 }
 
@@ -84,6 +84,7 @@ function toFormInput(bill: Bill): BillFormInput {
     items: bill.items.map((item) => ({
       details: item.details,
       amount: String(item.amount),
+      crossed: item.crossed == null ? "" : String(item.crossed),
     })),
   };
 }

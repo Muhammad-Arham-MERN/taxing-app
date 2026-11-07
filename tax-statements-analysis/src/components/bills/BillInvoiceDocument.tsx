@@ -84,10 +84,13 @@ const styles = StyleSheet.create({
   headCell: { padding: 6 },
   row: { flexDirection: "row", borderTopWidth: 1, borderTopColor: "#cfe6c2" },
   cell: { padding: 6, fontSize: 9.5 },
-  itemNo: { width: 60 },
-  details: { width: 213 },
-  amount: { width: 110, textAlign: "right" },
-  total: { width: 140, textAlign: "right" },
+  itemNo: { width: 58 },
+  details: { width: 150 },
+  crossed: { width: 85, textAlign: "right" },
+  amount: { width: 115, textAlign: "right" },
+  total: { width: 115, textAlign: "right" },
+  /** The optional "crossed" value is drawn struck through (client request). */
+  crossedStrike: { textDecoration: "line-through" },
   totalRow: {
     flexDirection: "row",
     borderTopWidth: 1,
@@ -222,6 +225,7 @@ export function BillInvoiceDocument({ bill }: BillInvoiceDocumentProps) {
           <View style={styles.headRow}>
             <Text style={[styles.headCell, styles.itemNo]}>Item Number</Text>
             <Text style={[styles.headCell, styles.details]}>Details</Text>
+            <Text style={[styles.headCell, styles.crossed]}>Crossed</Text>
             <Text style={[styles.headCell, styles.amount]}>Amount(s)</Text>
             <Text style={[styles.headCell, styles.total]}>Total</Text>
           </View>
@@ -230,6 +234,15 @@ export function BillInvoiceDocument({ bill }: BillInvoiceDocumentProps) {
             <View style={styles.row} key={item.id} wrap={false}>
               <Text style={[styles.cell, styles.itemNo]}>{item.position}</Text>
               <Text style={[styles.cell, styles.details]}>{item.details}</Text>
+              <Text
+                style={
+                  item.crossed != null
+                    ? [styles.cell, styles.crossed, styles.crossedStrike]
+                    : [styles.cell, styles.crossed]
+                }
+              >
+                {item.crossed != null ? formatPkr(item.crossed) : ""}
+              </Text>
               <Text style={[styles.cell, styles.amount]}>
                 {formatPkr(item.amount)}
               </Text>
@@ -240,6 +253,7 @@ export function BillInvoiceDocument({ bill }: BillInvoiceDocumentProps) {
           <View style={styles.totalRow}>
             <Text style={[styles.cell, styles.itemNo]} />
             <Text style={[styles.cell, styles.details]}>Total</Text>
+            <Text style={[styles.cell, styles.crossed]} />
             <Text style={[styles.cell, styles.amount]}>
               {formatPkr(bill.total)}
             </Text>

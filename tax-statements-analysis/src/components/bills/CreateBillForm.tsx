@@ -44,8 +44,12 @@ import {
   type BillFormInput,
   type BillFormOutput,
 } from "@/domain/billValidation";
-import { DEFAULT_ACCOUNT_HOLDER, WALLET_PLACEHOLDERS } from "@/domain/identity";
-import type { Client } from "@/domain/types";
+import {
+  DEFAULT_ACCOUNT_HOLDER,
+  DEFAULT_ITEM_DETAILS,
+  WALLET_PLACEHOLDERS,
+} from "@/domain/identity";
+import type { Client, Customer } from "@/domain/types";
 import { amountInWordsPkr, rupeesToMinor } from "@/lib/amountInWords";
 import { billFileName, renderBillInvoice } from "@/lib/billInvoice";
 import { formatPkr, parseIsoDate, toIsoDate, todayIso } from "@/lib/format";
@@ -66,7 +70,9 @@ function createEmptyForm(): BillFormInput {
     jazzcashNumbers: [{ number: WALLET_PLACEHOLDERS.jazzcash }],
     easypaisaNumbers: [{ number: WALLET_PLACEHOLDERS.easypaisa }],
     accountHolder: DEFAULT_ACCOUNT_HOLDER,
-    items: [{ details: "", amount: "" }],
+    // The first item's details are pre-written with the practice's memo, so it
+    // does not have to be typed on every bill (client request).
+    items: [{ details: DEFAULT_ITEM_DETAILS, amount: "", crossed: "" }],
   };
 }
 
@@ -75,8 +81,13 @@ export interface CreateBillFormProps {
 }
 
 export function CreateBillForm({ onCreated }: CreateBillFormProps) {
-  const { bills, clients: clientRepository } = useRepositories();
+  const {
+    bills,
+    clients: clientRepository,
+    customers: customerRepository,
+  } = useRepositories();
   const [knownClients, setKnownClients] = useState<Client[]>([]);
+  const [knownCustomers, setKnownCustomers] = useState<Customer[]>([]);
   const [removingClient, setRemovingClient] = useState<Client | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -109,29 +120,24 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
     };
   }, [clientRepository]);
 
-  // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
-  /**
-   * Choosing a client in the picker fills in the customer's name, first phone
-   * number, first email and password (client request). The bill's customer
-   * fields are single-valued, so where a client holds several of a value its
-   * first one is used. Fields the client book does not hold — address, contact
-   * person, NTN — are left as they are.
-   */
-  function applyClient(client: Client) {
-    form.setValue("customerName", client.name, { shouldDirty: true, shouldValidate: true });
-    form.setValue("contactNumber", client.phones[0] ?? "", {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("email", client.emails[0] ?? "", {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("customerPassword", client.password ?? "", {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-  }
+  useEffect(() => {
+    let active = true;
+    customerRepository
+      .list()
+      .then((list) => {
+        if (active) {
+          setKnownCustomers(list);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setKnownCustomers([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [customerRepository]);
 
   async function confirmRemoveClient() {
     if (!removingClient) {
@@ -155,6 +161,48 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
   }, 0);
   const words = amountInWordsPkr(rupeesToMinor(total));
   const { isValid } = useFormState({ control: form.control });
+
+  // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+  /**
+   * When the customer's name matches someone already known — a client from the
+   * book or a customer billed before — their saved details are brought across,
+   * so a bill is filled in one step. This is what lets a customer who was never
+   * recorded as a client be picked up again by name (client request). A name
+   * nobody knows leaves the fields exactly as the practitioner left them.
+   */
+  useEffect(() => {
+    const trimmed = customerName.trim().toLowerCase();
+    if (!trimmed) {
+      return;
+    }
+    const set = (
+      name:
+        | "customerAddress"
+        | "contactPerson"
+        | "contactNumber"
+        | "email"
+        | "ntn"
+        | "customerPassword",
+      value: string,
+    ) => form.setValue(name, value, { shouldDirty: true, shouldValidate: true });
+
+    const client = knownClients.find((entry) => entry.name.toLowerCase() === trimmed);
+    if (client) {
+      set("contactNumber", client.phones[0] ?? "");
+      set("email", client.emails[0] ?? "");
+      set("customerPassword", client.password ?? "");
+      return;
+    }
+    const customer = knownCustomers.find((entry) => entry.name.toLowerCase() === trimmed);
+    if (customer) {
+      set("customerAddress", customer.address ?? "");
+      set("contactPerson", customer.contactPerson ?? "");
+      set("contactNumber", customer.contactNumber ?? "");
+      set("email", customer.email ?? "");
+      set("ntn", customer.ntn ?? "");
+      set("customerPassword", customer.password ?? "");
+    }
+  }, [customerName, knownClients, knownCustomers, form]);
 
   // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
   const onSubmit = form.handleSubmit(async (values) => {
@@ -246,9 +294,11 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
                 <div className="grid gap-2">
                   <span className="text-sm leading-none font-medium">Customer Name</span>
                   {/* Free text: any name may be billed, client or not. Picking a
-                      client from the book fills their saved details. */}
+                      client or a remembered customer from the list fills their
+                      saved details. */}
                   <ClientCombobox
                     clients={knownClients}
+                    customers={knownCustomers}
                     value={customerName}
                     onValueChange={(next) =>
                       form.setValue("customerName", next, {
@@ -256,7 +306,18 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
                         shouldValidate: true,
                       })
                     }
-                    onSelect={applyClient}
+                    onSelectClient={(client) =>
+                      form.setValue("customerName", client.name, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
+                    onSelectCustomer={(customer) =>
+                      form.setValue("customerName", customer.name, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
                     onRemove={setRemovingClient}
                     disabled={submitting}
                     placeholder="Type any name, or pick a client"

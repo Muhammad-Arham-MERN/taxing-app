@@ -21,6 +21,8 @@ pub struct BillItem {
     pub position: i64,
     pub details: String,
     pub amount: f64,
+    /// An optional value shown struck through beside the amount; never totalled.
+    pub crossed: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,6 +45,9 @@ pub struct Bill {
 pub struct NewBillItem {
     pub details: String,
     pub amount: f64,
+    /// The optional struck-through value entered beside the amount.
+    #[serde(default)]
+    pub crossed: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -140,14 +145,15 @@ async fn insert_items(
 ) -> StoreResult<()> {
     for (index, item) in items.iter().enumerate() {
         conn.execute(
-            "INSERT INTO bill_items (id, bill_id, position, details, amount_minor)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO bill_items (id, bill_id, position, details, amount_minor, crossed_minor)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             (
                 uuid::Uuid::new_v4().to_string(),
                 bill_id,
                 (index as i64) + 1,
                 item.details.as_str(),
                 to_minor(item.amount),
+                item.crossed.map(to_minor),
             ),
         )
         .await?;
@@ -198,7 +204,7 @@ async fn load_wallets(conn: &Connection, bill_id: &str, kind: &str) -> StoreResu
 async fn load_items(conn: &Connection, bill_id: &str) -> StoreResult<Vec<BillItem>> {
     let mut rows = conn
         .query(
-            "SELECT id, position, details, amount_minor
+            "SELECT id, position, details, amount_minor, crossed_minor
                FROM bill_items
               WHERE bill_id = ?1
               ORDER BY position ASC",
@@ -208,11 +214,16 @@ async fn load_items(conn: &Connection, bill_id: &str) -> StoreResult<Vec<BillIte
 
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
+        let crossed = match row.get_value(4) {
+            Ok(Value::Integer(number)) => Some(from_minor(number)),
+            _ => None,
+        };
         out.push(BillItem {
             id: text_at(&row, 0),
             position: integer_at(&row, 1),
             details: text_at(&row, 2),
             amount: from_minor(integer_at(&row, 3)),
+            crossed,
         });
     }
     Ok(out)

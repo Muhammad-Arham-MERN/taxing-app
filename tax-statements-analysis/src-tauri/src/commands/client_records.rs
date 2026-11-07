@@ -141,8 +141,6 @@ async fn apply_create_client_record(
     state: State<'_, AppState>,
     request: Request<'_>,
 ) -> Result<Record, CommandError> {
-    let config = state.object_storage();
-
     // Parse first, but move the file only after the values are checked, so a
     // rejected record cannot leave an orphaned object behind.
     let (input, raw_file) = if is_raw(&request) {
@@ -164,18 +162,12 @@ async fn apply_create_client_record(
         return Err(CommandError::validation_for("record", fields));
     }
 
+    // The file is kept locally; the upload rides the next drain, so a large file
+    // never holds the record's own write up.
     let attachment = match raw_file {
         Some((name, content_type, bytes)) => Some(
-            files::store_file(
-                config.as_ref(),
-                &state.cache,
-                Some(&app),
-                Scope::Record,
-                &name,
-                content_type.as_deref(),
-                &bytes,
-            )
-            .await?,
+            files::store_file(&state.cache, Scope::Record, &name, content_type.as_deref(), &bytes)
+                .await?,
         ),
         None => None,
     };
@@ -209,8 +201,6 @@ async fn apply_update_client_record(
     state: State<'_, AppState>,
     request: Request<'_>,
 ) -> Result<Record, CommandError> {
-    let config = state.object_storage();
-
     let mut update: RecordUpdate = if is_raw(&request) {
         meta_from::<UpdateJson>(&request)?.update
     } else {
@@ -239,16 +229,8 @@ async fn apply_update_client_record(
             ));
         }
         *reference = Some(
-            files::store_file(
-                config.as_ref(),
-                &state.cache,
-                Some(&app),
-                Scope::Record,
-                file_name,
-                content_type.as_deref(),
-                &incoming,
-            )
-            .await?,
+            files::store_file(&state.cache, Scope::Record, file_name, content_type.as_deref(), &incoming)
+                .await?,
         );
     }
 

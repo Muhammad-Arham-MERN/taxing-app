@@ -104,11 +104,26 @@ export function StatementsTable({ statements, onChanged }: StatementsTableProps)
         header: "Type",
         cell: ({ row }) => (row.original.type === "inflow" ? "In-Flow" : "Out-Flow"),
       },
-      { accessorKey: "nature", header: "Nature" },
+      {
+        accessorKey: "nature",
+        header: "Nature",
+        cell: ({ row }) => (
+          <span className="block max-w-[180px] truncate" title={row.original.nature}>
+            {row.original.nature}
+          </span>
+        ),
+      },
       {
         accessorKey: "remarks",
         header: "Remarks",
-        cell: ({ row }) => formatOptional(row.original.remarks),
+        cell: ({ row }) => (
+          <span
+            className="block max-w-[220px] truncate"
+            title={row.original.remarks ?? undefined}
+          >
+            {formatOptional(row.original.remarks)}
+          </span>
+        ),
       },
       {
         accessorKey: "amount",
