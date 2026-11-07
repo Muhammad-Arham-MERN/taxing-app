@@ -618,6 +618,7 @@ export class InMemoryBillRepository implements BillRepository {
         position: index + 1,
         details: item.details,
         amount: item.amount,
+        crossed: item.crossed ?? null,
       })),
       total: input.items.reduce((sum, item) => sum + item.amount, 0),
       createdAt: new Date().toISOString(),
@@ -701,6 +702,7 @@ export class InMemoryBillRepository implements BillRepository {
         position: position + 1,
         details: item.details,
         amount: item.amount,
+        crossed: item.crossed ?? null,
       })),
       total: update.items.reduce((sum, item) => sum + item.amount, 0),
     };

@@ -38,4 +38,12 @@ export const BANK_DETAILS = [
   { heading: "JS Bank", value: "0002717402 (M&M Tax Law Solutions)" },
 ] as const;
 
+/**
+ * The memo written into a bill's first item by default, so the practitioner does
+ * not have to type it on every bill (client request). It is an ordinary default
+ * value: it can be edited or cleared like any other detail.
+ */
+export const DEFAULT_ITEM_DETAILS =
+  "We append below a memo of charges of our accounting and professional services and shall be grateful if favored with an early remittance.";
+
 // وَإِنَّ اللَّهَ لَهُوَ خَيْرُ الرَّازِقِينَ

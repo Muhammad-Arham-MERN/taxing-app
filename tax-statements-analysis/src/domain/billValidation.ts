@@ -51,9 +51,17 @@ function cleanNumbers(numbers: Array<{ number: string }>): string[] {
     .filter((number) => number.length > 0);
 }
 
+/**
+ * The optional "crossed" value shown struck through beside an item's amount
+ * (client request). Blank means none; given, it follows the same rules as an
+ * amount. It is display-only and never enters the total.
+ */
+const crossedInputSchema = z.union([amountInputSchema, z.literal("")]);
+
 export const billItemInputSchema = z.object({
   details: z.string().trim().min(1, "Details are required for every item."),
   amount: amountInputSchema,
+  crossed: crossedInputSchema,
 });
 
 export const billFormSchema = z.object({
@@ -95,6 +103,7 @@ export function toNewBill(values: BillFormOutput): NewBill {
     items: values.items.map((item) => ({
       details: item.details,
       amount: Number(item.amount),
+      crossed: item.crossed === "" ? null : Number(item.crossed),
     })),
   };
 }

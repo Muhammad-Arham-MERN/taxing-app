@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS bill_items (
     position     INTEGER NOT NULL CHECK (position > 0),
     details      TEXT    NOT NULL,
     amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+    crossed_minor INTEGER,
     UNIQUE (bill_id, position)
 ) STRICT;
 
@@ -209,6 +210,7 @@ pub async fn apply(
     conn.execute_batch(DDL_V6).await?;
     conn.execute_batch(DDL_V7).await?;
     ensure_client_password_column(conn).await?;
+    ensure_bill_item_crossed_column(conn).await?;
 
     conn.execute(
         &format!("PRAGMA application_id = {APPLICATION_ID}"),
@@ -363,6 +365,12 @@ pub async fn migrate(
     // Guarded and idempotent, so it runs at every version and always leaves the
     // client table in the shape the queries expect.
     ensure_client_password_column(conn).await?;
+
+    // The bill item's `crossed` column (client request) is added the same way: an
+    // additive, always-ensured column that deliberately never bumps
+    // `SCHEMA_VERSION`, so an older build opening a newer store ignores it rather
+    // than refusing the file (see `DATABASE_MIGRATIONS.md`).
+    ensure_bill_item_crossed_column(conn).await?;
 
     if version < super::SCHEMA_VERSION {
         conn.execute(
@@ -647,6 +655,23 @@ async fn ensure_client_password_column(conn: &Connection) -> StoreResult<()> {
     if !column_exists(conn, "clients", "password").await? {
         crate::log_info!("schema: adding the clients.password column");
         conn.execute("ALTER TABLE clients ADD COLUMN password TEXT", ())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Add the line item's `crossed` column when it is not already present (client
+/// request). Like [`ensure_client_password_column`], it runs on **every** open so
+/// a store of any earlier shape picks it up, and it is idempotent.
+///
+/// It is a purely **additive** change, so `SCHEMA_VERSION` is deliberately **not**
+/// bumped: an older build opening a newer store ignores the column instead of
+/// refusing the file, because the version it compares never changes (see
+/// `DATABASE_MIGRATIONS.md`).
+async fn ensure_bill_item_crossed_column(conn: &Connection) -> StoreResult<()> {
+    if !column_exists(conn, "bill_items", "crossed_minor").await? {
+        crate::log_info!("schema: adding the bill_items.crossed_minor column");
+        conn.execute("ALTER TABLE bill_items ADD COLUMN crossed_minor INTEGER", ())
             .await?;
     }
     Ok(())

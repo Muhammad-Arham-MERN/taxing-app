@@ -332,9 +332,20 @@ export function ClientRecordsView({
               <TableBody>
                 {filtered.map((record) => (
                   <TableRow key={record.id}>
-                    <TableCell className="font-medium">{record.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <span className="block max-w-[180px] truncate" title={record.name}>
+                        {record.name}
+                      </span>
+                    </TableCell>
                     <TableCell>{formatDate(record.date)}</TableCell>
-                    <TableCell>{formatOptional(record.remarks)}</TableCell>
+                    <TableCell>
+                      <span
+                        className="block max-w-[220px] truncate"
+                        title={record.remarks ?? undefined}
+                      >
+                        {formatOptional(record.remarks)}
+                      </span>
+                    </TableCell>
                     <TableCell>
                       <CategoryChip
                         category={record.categoryId ? categoryById.get(record.categoryId) : null}

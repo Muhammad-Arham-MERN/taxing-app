@@ -136,19 +136,25 @@ export function BillsTable({ bills, customers, onChanged }: BillsTableProps) {
           {visible.map((bill) => (
             <TableRow key={bill.id}>
               <TableCell>
-                {/* Clicking the name opens the customer's own details. */}
+                {/* Clicking the name opens the customer's own details. The name
+                    is truncated so a long one cannot widen the table. */}
                 <Button
                   type="button"
                   variant="link"
-                  className="h-auto p-0 text-left"
+                  className="h-auto max-w-[180px] p-0 text-left"
                   aria-label={`Customer ${bill.customerName}`}
+                  title={bill.customerName}
                   onClick={() => setEditingCustomer(bill.customerName)}
                 >
-                  {bill.customerName}
+                  <span className="block truncate">{bill.customerName}</span>
                 </Button>
               </TableCell>
               <TableCell>{formatDate(bill.date)}</TableCell>
-              <TableCell>{bill.details}</TableCell>
+              <TableCell>
+                <span className="block max-w-[220px] truncate" title={bill.details}>
+                  {bill.details}
+                </span>
+              </TableCell>
               <TableCell className="text-right">{formatPkr(bill.total)}</TableCell>
               <TableCell className="text-right">
                 <div className="flex justify-end gap-1">

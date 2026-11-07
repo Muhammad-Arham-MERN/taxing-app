@@ -169,12 +169,19 @@ export interface BillItem {
   position: number;
   details: string;
   amount: number;
+  /**
+   * An optional value shown struck through beside the amount (client request).
+   * It is display-only and never added to the bill's total.
+   */
+  crossed: number | null;
 }
 
 /** An item as entered on the form (no id or position yet). */
 export interface NewBillItem {
   details: string;
   amount: number;
+  /** Optional: an item need not carry a crossed value. */
+  crossed?: number | null;
 }
 
 /** A stored bill with its customer and line items (FR-001). */
