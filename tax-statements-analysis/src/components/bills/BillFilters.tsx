@@ -11,11 +11,12 @@ import { CustomerFilter } from "@/components/bills/CustomerFilter";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { BillFilter, Customer } from "@/domain/types";
+import type { BillFilter, Client, Customer } from "@/domain/types";
 import { parseIsoDate, toIsoDate } from "@/lib/format";
 
 export interface BillFiltersProps {
   filter: BillFilter;
+  clients: Client[];
   customers: Customer[];
   onChange: (next: BillFilter) => void;
   disabled?: boolean;
@@ -80,6 +81,7 @@ function OptionalDateField({
 
 export function BillFilters({
   filter,
+  clients,
   customers,
   onChange,
   disabled = false,
@@ -99,6 +101,7 @@ export function BillFilters({
         disabled={disabled}
       />
       <CustomerFilter
+        clients={clients}
         customers={customers}
         value={filter.customer}
         onChange={(customer) => onChange({ ...filter, customer })}

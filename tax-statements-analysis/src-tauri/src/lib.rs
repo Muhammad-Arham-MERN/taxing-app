@@ -145,6 +145,7 @@ pub fn run() {
             commands::bills::get_bill,
             commands::bills::update_bill,
             commands::bills::delete_bill,
+            commands::bills::set_bill_paid,
             commands::bills::list_customers,
             commands::bills::update_customer,
             commands::bills::open_bill_invoice,

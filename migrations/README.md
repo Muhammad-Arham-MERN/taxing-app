@@ -44,3 +44,30 @@ cd migrations
 npm install
 node object-storage/migrate.mjs
 ```
+
+## `bills-clients-fields/migrate.mjs` — additive columns
+
+Adds the nullable columns this release introduced, on both sides (the app adds
+them to each machine on open via `store::schema::ensure_*`):
+
+- `bills.paid_on` — the View Bills status (`NULL` = unpaid, a date = paid).
+- `bills.meezan_iban`, `bills.js_iban` — the two banks' editable invoice-footer
+  values.
+- `clients.address`, `clients.contact_person`, `clients.ntn` — the client's own
+  Customer Details fields.
+
+Purely additive, so **no schema-version bump**: an older build opening a newer
+store ignores the columns rather than refusing the file. It is **idempotent** — a
+column already present is skipped — so a second run is a no-op.
+
+### Required environment
+
+Only `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` (no object storage).
+
+### Running locally
+
+```sh
+cd migrations
+npm install
+node bills-clients-fields/migrate.mjs
+```

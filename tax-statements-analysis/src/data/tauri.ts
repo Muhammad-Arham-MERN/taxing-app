@@ -285,6 +285,10 @@ export class TauriBillRepository implements BillRepository {
     await call<void>("delete_bill", { id });
   }
 
+  async setPaid(id: string, paidOn: string | null): Promise<void> {
+    await call<void>("set_bill_paid", { id, paidOn });
+  }
+
   /**
    * The invoice is rendered in the frontend and never stored: its bytes travel
    * as the raw body, with only the suggested file name beside them (FR-027).

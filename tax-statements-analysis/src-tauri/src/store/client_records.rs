@@ -187,7 +187,7 @@ pub async fn create(
     let id = uuid::Uuid::new_v4().to_string();
     let now = schema::now_iso();
 
-    let tx = conn.unchecked_transaction().await?;
+    let tx = super::begin_write(conn).await?;
     tx.execute(
         "INSERT INTO client_records
              (id, cnic, name, occurred_on, remarks, category_id, created_at, updated_at)
@@ -228,7 +228,7 @@ pub async fn update(conn: &Connection, update: &RecordUpdate) -> StoreResult<Rec
     crate::log_info!("client_records::update: correcting record {}", update.id);
     let now = schema::now_iso();
 
-    let tx = conn.unchecked_transaction().await?;
+    let tx = super::begin_write(conn).await?;
     let changed = tx
         .execute(
             "UPDATE client_records

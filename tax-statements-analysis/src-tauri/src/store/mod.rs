@@ -191,6 +191,36 @@ impl From<std::io::Error> for StoreError {
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
+// وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+/// Make sure the connection is not holding a transaction left open by an earlier
+/// failed write, **before** any store operation runs.
+///
+/// This is the important half of the fix for the *"cannot start a transaction
+/// within a transaction"* report. A failed write can leave a transaction open; if
+/// it is not closed, later writes silently **join** it — they report success but
+/// are never committed, so the records are lost as soon as that transaction is
+/// finally rolled back (this is exactly how newly-created clients disappeared).
+/// Rolling a stray transaction back here means no command can ever run inside it.
+pub(crate) async fn reset_connection(conn: &Connection) {
+    if !conn.is_autocommit().unwrap_or(true) {
+        crate::log_warn!("reset_connection: a transaction was left open — rolling it back");
+        // Best-effort: with no transaction actually open this errors harmlessly.
+        let _ = conn.execute("ROLLBACK", ()).await;
+    }
+}
+
+/// Open a write transaction on a clean connection.
+///
+/// Every multi-statement write opens its own transaction. If such a write fails
+/// part-way it can leave the engine holding an open transaction; [`reset_connection`]
+/// clears any such leftover first, so each write is self-healing.
+pub(crate) async fn begin_write<'a>(
+    conn: &'a Connection,
+) -> StoreResult<turso::transaction::Transaction<'a>> {
+    reset_connection(conn).await;
+    Ok(conn.unchecked_transaction().await?)
+}
+
 /// What inspecting a file told us. Never performs a write, so a rejected file is
 /// left byte-for-byte unchanged (FR-060, SC-020).
 #[derive(Debug)]

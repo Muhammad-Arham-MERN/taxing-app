@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { SecretsStatus } from "@/components/onboarding/SecretsStatus";
 import type { StorageRepository } from "@/data/repositories";
-import type { CarryAcrossChoice, LocationRisk } from "@/domain/types";
+import type { CarryAcrossChoice, LocationRisk, StorageLocation } from "@/domain/types";
 
 export interface StorageLocationDialogProps {
   open: boolean;
@@ -19,6 +19,8 @@ export interface StorageLocationDialogProps {
   storage: StorageRepository;
   /** A usable store is already open, so its records could be brought across. */
   hasCurrentStore: boolean;
+  /** The folder (or file) currently in use, so it can be shown before any choice. */
+  currentLocation: StorageLocation | null;
   /** Called after the location changes, so the caller can re-read the state. */
   onChanged: () => void;
 }
@@ -48,6 +50,7 @@ export function StorageLocationDialog({
   onOpenChange,
   storage,
   hasCurrentStore,
+  currentLocation,
   onChanged,
 }: StorageLocationDialogProps) {
   const [pending, setPending] = useState<Pending | null>(null);
@@ -127,6 +130,21 @@ export function StorageLocationDialog({
 
         {!deciding ? (
           <div className="grid gap-3">
+            {/* Which folder (or file) the application is actually using right now
+                (client request) — shown before any choice is made. */}
+            {currentLocation ? (
+              <p
+                data-slot="current-location"
+                className="rounded-2xl border border-border/60 bg-surface/60 p-3 text-sm text-muted-foreground"
+              >
+                Currently using:{" "}
+                <span className="font-medium break-all text-foreground">
+                  {currentLocation.path}
+                </span>{" "}
+                {currentLocation.kind === "directory" ? "(folder)" : "(file)"}
+              </p>
+            ) : null}
+
             <Button type="button" variant="outline" size="lg" onClick={() => choose("directory")}>
               Choose a folder
             </Button>

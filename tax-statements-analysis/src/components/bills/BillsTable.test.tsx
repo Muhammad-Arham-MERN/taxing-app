@@ -21,11 +21,12 @@ const rows: BillSummary[] = [
     customerName: "Acme Traders",
     details: "Audit Fee",
     total: 1500,
+    paidOn: null,
   },
 ];
 
 describe("BillsTable", () => {
-  it("shows the four columns the client asked for", () => {
+  it("shows the columns the client asked for, including the bill status", () => {
     renderTable(<BillsTable bills={rows} customers={[]} onChanged={() => {}} />);
 
     expect(
@@ -34,8 +35,13 @@ describe("BillsTable", () => {
     expect(screen.getByRole("columnheader", { name: "Date" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Details" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Amount" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
     expect(screen.getByText("Acme Traders")).toBeInTheDocument();
     expect(screen.getByText("PKR 1,500.00")).toBeInTheDocument();
+    // A bill with no paid-on date reads Unpaid.
+    expect(
+      screen.getByRole("button", { name: "Mark bill INV-0001 paid" }),
+    ).toHaveTextContent("Unpaid");
   });
 
   it("shows a clear empty state when nothing matches", () => {

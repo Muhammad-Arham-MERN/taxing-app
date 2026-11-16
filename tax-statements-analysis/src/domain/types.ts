@@ -111,6 +111,10 @@ export interface Client {
   cnic: string;
   name: string;
   company: string | null;
+  /** The client's own Customer Details fields, mirroring a bill's (client request). */
+  address: string | null;
+  contactPerson: string | null;
+  ntn: string | null;
   /** The client's own password; carried onto a bill raised for them (client request). */
   password: string | null;
   phones: string[];
@@ -193,8 +197,13 @@ export interface Bill {
   jazzcashNumbers: string[];
   easypaisaNumbers: string[];
   accountHolder: string;
+  /** The two banks' IBAN/account values carried on this bill's invoice footer. */
+  meezanIban: string | null;
+  jsIban: string | null;
   items: BillItem[];
   total: number;
+  /** `null` is **Unpaid**; a date is **Paid** on that date (client request). */
+  paidOn: string | null;
   createdAt: string;
 }
 
@@ -205,6 +214,8 @@ export interface NewBill {
   jazzcashNumbers: string[];
   easypaisaNumbers: string[];
   accountHolder: string;
+  meezanIban?: string | null;
+  jsIban?: string | null;
   items: NewBillItem[];
 }
 
@@ -216,6 +227,8 @@ export interface BillUpdate {
   jazzcashNumbers: string[];
   easypaisaNumbers: string[];
   accountHolder: string;
+  meezanIban?: string | null;
+  jsIban?: string | null;
   items: NewBillItem[];
 }
 
@@ -234,6 +247,8 @@ export interface BillSummary {
   customerName: string;
   details: string;
   total: number;
+  /** `null` is **Unpaid**; a date is **Paid** on that date (client request). */
+  paidOn: string | null;
 }
 
 // ---- Cloud sync (Module 4) ------------------------------------------------

@@ -140,6 +140,13 @@ impl AppState {
             "with_connection: running a store operation (synced={})",
             handle.synced.is_some()
         );
+
+        // Never run a command inside a transaction a previous, failed write left
+        // open: later writes would silently join it and never be committed, so the
+        // records would be lost when it is finally rolled back (how newly-created
+        // clients disappeared). Clear any stray transaction first.
+        store::reset_connection(&handle.conn).await;
+
         let outcome = f(handle).await;
         match &outcome {
             Ok(_) => crate::log_debug!("with_connection: store operation finished"),

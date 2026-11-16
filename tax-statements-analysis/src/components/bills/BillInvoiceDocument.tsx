@@ -290,12 +290,20 @@ export function BillInvoiceDocument({ bill }: BillInvoiceDocumentProps) {
 
         {/* Structural columns, no visible table: Meezan / JS Bank / Easypaisa / JazzCash. */}
         <View style={styles.footer} fixed>
-          {BANK_DETAILS.map((bank) => (
-            <View style={styles.footerColumn} key={bank.heading}>
-              <Text style={styles.footerHeading}>{bank.heading}</Text>
-              <Text style={styles.footerValue}>{bank.value}</Text>
-            </View>
-          ))}
+          {/* The two bank values are the bill's own, editable values, falling back
+              to the practice's numbers when left blank (client request). */}
+          <View style={styles.footerColumn}>
+            <Text style={styles.footerHeading}>{BANK_DETAILS[0].heading}</Text>
+            <Text style={styles.footerValue}>
+              {bill.meezanIban?.trim() || BANK_DETAILS[0].value}
+            </Text>
+          </View>
+          <View style={styles.footerColumn}>
+            <Text style={styles.footerHeading}>{BANK_DETAILS[1].heading}</Text>
+            <Text style={styles.footerValue}>
+              {bill.jsIban?.trim() || BANK_DETAILS[1].value}
+            </Text>
+          </View>
 
           <View style={styles.footerColumn}>
             <Text style={styles.footerHeading}>Easypaisa</Text>
