@@ -19,14 +19,23 @@ export interface ClientComboboxProps {
    */
   value: string;
   onValueChange: (value: string) => void;
-  /** A client picked from the book — fills the customer's own details. */
-  onSelectClient: (client: Client) => void;
+  /**
+   * A client picked from the book — fills the customer's own details. Optional:
+   * where the field is used only as a filter (View Bills), picking simply sets
+   * the name via `onValueChange`.
+   */
+  onSelectClient?: (client: Client) => void;
   /** A remembered customer picked — fills the details saved with their past bill. */
-  onSelectCustomer: (customer: Customer) => void;
-  /** Asked to remove a client from the book (the caller confirms and calls the repository). */
-  onRemove: (client: Client) => void;
+  onSelectCustomer?: (customer: Customer) => void;
+  /**
+   * Asked to remove a client from the book (the caller confirms and calls the
+   * repository). When omitted, no remove affordance is shown.
+   */
+  onRemove?: (client: Client) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** The field's accessible name; defaults to "Customer Name". */
+  ariaLabel?: string;
 }
 
 type Entry =
@@ -51,9 +60,26 @@ export function ClientCombobox({
   onRemove,
   disabled = false,
   placeholder = "Type any name, or pick a client",
+  ariaLabel = "Customer Name",
 }: ClientComboboxProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
+
+  /** Pick an entry; without a dedicated handler, the name is simply set. */
+  function choose(entry: Entry) {
+    if (entry.kind === "client") {
+      if (onSelectClient) {
+        onSelectClient(entry.client);
+      } else {
+        onValueChange(entry.client.name);
+      }
+    } else if (onSelectCustomer) {
+      onSelectCustomer(entry.customer);
+    } else {
+      onValueChange(entry.customer.name);
+    }
+    setOpen(false);
+  }
 
   const entries = useMemo<Entry[]>(() => {
     const clientNames = new Set(clients.map((client) => client.name.toLowerCase()));
@@ -93,7 +119,7 @@ export function ClientCombobox({
         <div ref={anchorRef} className="relative flex items-center">
           <Input
             value={value}
-            aria-label="Customer Name"
+            aria-label={ariaLabel}
             placeholder={placeholder}
             disabled={disabled}
             className="h-11 pr-9 text-base md:text-base"
@@ -147,21 +173,14 @@ export function ClientCombobox({
                 <button
                   type="button"
                   className="flex min-w-0 flex-1 flex-col items-start px-1.5 py-1.5 text-left"
-                  onClick={() => {
-                    if (entry.kind === "client") {
-                      onSelectClient(entry.client);
-                    } else {
-                      onSelectCustomer(entry.customer);
-                    }
-                    setOpen(false);
-                  }}
+                  onClick={() => choose(entry)}
                 >
                   <span className="w-full truncate text-sm font-medium">{entry.name}</span>
                   <span className="w-full truncate text-xs text-muted-foreground">
                     {entry.kind === "client" ? "Client" : "Customer"} · {entry.subtitle}
                   </span>
                 </button>
-                {entry.kind === "client" ? (
+                {entry.kind === "client" && onRemove ? (
                   <Button
                     type="button"
                     variant="ghost"

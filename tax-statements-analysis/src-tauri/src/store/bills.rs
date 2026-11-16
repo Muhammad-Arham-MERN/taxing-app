@@ -35,8 +35,15 @@ pub struct Bill {
     pub jazzcash_numbers: Vec<String>,
     pub easypaisa_numbers: Vec<String>,
     pub account_holder: String,
+    /// The two banks' IBAN/account values carried on this bill's invoice footer
+    /// (client request — editable, defaulted to the practice's own numbers).
+    pub meezan_iban: Option<String>,
+    pub js_iban: Option<String>,
     pub items: Vec<BillItem>,
     pub total: f64,
+    /// The date this bill was marked paid; `None` means it is still **unpaid**
+    /// (client request — the View Bills Status column).
+    pub paid_on: Option<String>,
     pub created_at: String,
 }
 
@@ -60,6 +67,11 @@ pub struct NewBill {
     #[serde(default)]
     pub easypaisa_numbers: Vec<String>,
     pub account_holder: String,
+    /// The invoice footer's two bank values; absent means "use the defaults".
+    #[serde(default)]
+    pub meezan_iban: Option<String>,
+    #[serde(default)]
+    pub js_iban: Option<String>,
     pub items: Vec<NewBillItem>,
 }
 
@@ -74,6 +86,10 @@ pub struct BillUpdate {
     #[serde(default)]
     pub easypaisa_numbers: Vec<String>,
     pub account_holder: String,
+    #[serde(default)]
+    pub meezan_iban: Option<String>,
+    #[serde(default)]
+    pub js_iban: Option<String>,
     pub items: Vec<NewBillItem>,
 }
 
@@ -88,6 +104,8 @@ pub struct BillSummary {
     pub customer_name: String,
     pub details: String,
     pub total: f64,
+    /// `None` is **Unpaid**; a date is **Paid** on that date (client request).
+    pub paid_on: Option<String>,
 }
 
 fn text_at(row: &turso::Row, index: usize) -> String {
@@ -104,6 +122,13 @@ fn integer_at(row: &turso::Row, index: usize) -> i64 {
     }
 }
 
+fn optional_text_at(row: &turso::Row, index: usize) -> Option<String> {
+    match row.get_value(index) {
+        Ok(Value::Text(text)) => Some(text),
+        _ => None,
+    }
+}
+
 // وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
 /// Take the next invoice number and advance the counter, **inside the caller's
 /// transaction**.
@@ -117,13 +142,27 @@ async fn allocate_invoice_no(conn: &Connection) -> StoreResult<(String, i64)> {
             (),
         )
         .await?;
-    let next = rows
+    let counter = rows
         .next()
         .await?
         .map(|row| integer_at(&row, 0))
         .unwrap_or(1)
         .max(1);
     drop(rows);
+
+    // The `app_meta` counter is authoritative only on this machine. A store that
+    // **pulled** bills from another computer, or that carried them across, can
+    // hold `invoice_seq` values above the local counter; trusting the counter
+    // alone would then hand out a number that is already taken and the insert
+    // would fail with `UNIQUE constraint failed: bills.invoice_seq` (client bug
+    // report). The highest number actually present is therefore the floor.
+    let mut rows = conn
+        .query("SELECT COALESCE(MAX(invoice_seq), 0) FROM bills", ())
+        .await?;
+    let highest = rows.next().await?.map(|row| integer_at(&row, 0)).unwrap_or(0);
+    drop(rows);
+
+    let next = counter.max(highest + 1);
 
     conn.execute(
         "INSERT INTO app_meta (key, value) VALUES ('next_invoice_no', ?1)
@@ -134,6 +173,17 @@ async fn allocate_invoice_no(conn: &Connection) -> StoreResult<(String, i64)> {
 
     crate::log_debug!("allocate_invoice_no: issuing INV-{next:04} (next counter is {})", next + 1);
     Ok((format!("INV-{next:04}"), next))
+}
+
+/// Whether the engine's failure is the invoice number already being taken, so the
+/// create can allocate again rather than reporting it.
+fn is_invoice_conflict(error: &turso::Error) -> bool {
+    match error {
+        turso::Error::Error(message) => {
+            message.contains("bills.invoice_seq") || message.contains("bills.invoice_no")
+        }
+        _ => false,
+    }
 }
 
 /// Insert a bill's line items, numbering them `1..n` from the order given, so
@@ -248,34 +298,62 @@ pub async fn create(conn: &Connection, input: &NewBill) -> StoreResult<Bill> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = schema::now_iso();
 
-    let tx = conn.unchecked_transaction().await?;
-    let (invoice_no, invoice_seq) = allocate_invoice_no(&tx).await?;
+    // A number that turns out to be taken is allocated **again** rather than
+    // reported: the store is logically single-writer, but a number can still be
+    // taken by a row that arrived through sync, so the insert is retried a few
+    // times before the failure is surfaced.
+    const MAX_ATTEMPTS: u32 = 3;
+    let mut attempt = 1;
+    loop {
+        let tx = super::begin_write(conn).await?;
+        let (invoice_no, invoice_seq) = allocate_invoice_no(&tx).await?;
 
-    customers::upsert_within(&tx, &input.customer).await?;
-    tx.execute(
-        "INSERT INTO bills
-             (id, invoice_no, invoice_seq, occurred_on, customer_name,
-              account_holder, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-        (
-            id.as_str(),
-            invoice_no.as_str(),
-            invoice_seq,
-            input.date.as_str(),
-            input.customer.name.as_str(),
-            input.account_holder.as_str(),
-            now.as_str(),
-        ),
-    )
-    .await?;
+        customers::upsert_within(&tx, &input.customer).await?;
+        let inserted = tx
+            .execute(
+                "INSERT INTO bills
+                     (id, invoice_no, invoice_seq, occurred_on, customer_name,
+                      account_holder, meezan_iban, js_iban, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+                (
+                    id.as_str(),
+                    invoice_no.as_str(),
+                    invoice_seq,
+                    input.date.as_str(),
+                    input.customer.name.as_str(),
+                    input.account_holder.as_str(),
+                    input.meezan_iban.as_deref(),
+                    input.js_iban.as_deref(),
+                    now.as_str(),
+                ),
+            )
+            .await;
+        if let Err(error) = inserted {
+            if attempt < MAX_ATTEMPTS && is_invoice_conflict(&error) {
+                attempt += 1;
+                crate::log_warn!("bills::create: {invoice_no} is already taken — allocating again");
+                continue;
+            }
+            return Err(error.into());
+        }
 
-    insert_items(&tx, &id, &input.items).await?;
-    insert_wallets(&tx, &id, "jazzcash", &input.jazzcash_numbers).await?;
-    insert_wallets(&tx, &id, "easypaisa", &input.easypaisa_numbers).await?;
-    tx.commit().await?;
-    crate::log_info!("bills::create: committed bill {id} as {invoice_no}");
+        insert_items(&tx, &id, &input.items).await?;
+        insert_wallets(&tx, &id, "jazzcash", &input.jazzcash_numbers).await?;
+        insert_wallets(&tx, &id, "easypaisa", &input.easypaisa_numbers).await?;
 
-    get(conn, &id).await
+        match tx.commit().await {
+            Ok(()) => {
+                crate::log_info!("bills::create: committed bill {id} as {invoice_no}");
+                return get(conn, &id).await;
+            }
+            Err(error) if attempt < MAX_ATTEMPTS && is_invoice_conflict(&error) => {
+                attempt += 1;
+                crate::log_warn!("bills::create: {invoice_no} is already taken — allocating again");
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 /// One stored bill with its customer and its line items (FR-044).
@@ -283,7 +361,8 @@ pub async fn get(conn: &Connection, id: &str) -> StoreResult<Bill> {
     crate::log_debug!("bills::get: {id}");
     let mut rows = conn
         .query(
-            "SELECT id, invoice_no, occurred_on, customer_name, account_holder, created_at
+            "SELECT id, invoice_no, occurred_on, customer_name, account_holder,
+                    meezan_iban, js_iban, paid_on, created_at
                FROM bills
               WHERE id = ?1",
             [id],
@@ -294,14 +373,15 @@ pub async fn get(conn: &Connection, id: &str) -> StoreResult<Bill> {
         crate::log_warn!("bills::get: no bill with id {id}");
         return Err(StoreError::UnknownBill);
     };
-    let (bill_id, invoice_no, date, customer_name, account_holder, created_at) = (
-        text_at(&row, 0),
-        text_at(&row, 1),
-        text_at(&row, 2),
-        text_at(&row, 3),
-        text_at(&row, 4),
-        text_at(&row, 5),
-    );
+    let bill_id = text_at(&row, 0);
+    let invoice_no = text_at(&row, 1);
+    let date = text_at(&row, 2);
+    let customer_name = text_at(&row, 3);
+    let account_holder = text_at(&row, 4);
+    let meezan_iban = optional_text_at(&row, 5);
+    let js_iban = optional_text_at(&row, 6);
+    let paid_on = optional_text_at(&row, 7);
+    let created_at = text_at(&row, 8);
     drop(rows);
 
     let customer = customers::get(conn, &customer_name).await?;
@@ -316,8 +396,11 @@ pub async fn get(conn: &Connection, id: &str) -> StoreResult<Bill> {
         jazzcash_numbers: load_wallets(conn, &bill_id, "jazzcash").await?,
         easypaisa_numbers: load_wallets(conn, &bill_id, "easypaisa").await?,
         account_holder,
+        meezan_iban,
+        js_iban,
         items,
         total,
+        paid_on,
         created_at,
     })
 }
@@ -368,7 +451,8 @@ pub async fn list(
     let sql = format!(
         "SELECT b.id, b.invoice_no, b.occurred_on, b.customer_name,
                 COALESCE(GROUP_CONCAT(i.details, '; '), '') AS details,
-                COALESCE(SUM(i.amount_minor), 0) AS total_minor
+                COALESCE(SUM(i.amount_minor), 0) AS total_minor,
+                b.paid_on
            FROM bills b
            LEFT JOIN bill_items i ON i.bill_id = b.id
           {where_sql}
@@ -389,6 +473,7 @@ pub async fn list(
             customer_name: text_at(&row, 3),
             details: text_at(&row, 4),
             total: from_minor(integer_at(&row, 5)),
+            paid_on: optional_text_at(&row, 6),
         });
     }
     crate::log_info!("bills::list: {} bill(s) returned", out.len());
@@ -408,22 +493,27 @@ pub async fn update(conn: &Connection, update: &BillUpdate) -> StoreResult<Bill>
     );
     let now = schema::now_iso();
 
-    let tx = conn.unchecked_transaction().await?;
+    let tx = super::begin_write(conn).await?;
 
     // The customer is upserted before the bill references them, so the foreign
     // key always holds even when the practitioner renamed the customer.
     customers::upsert_within(&tx, &update.customer).await?;
 
+    // `paid_on` is deliberately **not** touched here: a correction keeps the
+    // bill's payment status, which is set from View Bills (client request).
     let changed = tx
         .execute(
             "UPDATE bills
-                SET occurred_on = ?2, customer_name = ?3, account_holder = ?4, updated_at = ?5
+                SET occurred_on = ?2, customer_name = ?3, account_holder = ?4,
+                    meezan_iban = ?5, js_iban = ?6, updated_at = ?7
               WHERE id = ?1",
             (
                 update.id.as_str(),
                 update.date.as_str(),
                 update.customer.name.as_str(),
                 update.account_holder.as_str(),
+                update.meezan_iban.as_deref(),
+                update.js_iban.as_deref(),
                 now.as_str(),
             ),
         )
@@ -463,4 +553,24 @@ pub async fn delete(conn: &Connection, id: &str) -> StoreResult<()> {
     }
     crate::log_info!("bills::delete: removed bill {id}");
     Ok(())
+}
+
+// وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+/// Mark a bill **paid** on a date, or **unpaid** again with `None` (client
+/// request — the View Bills Status column). Only this field moves; the bill's
+/// identity, number, items and totals are untouched.
+pub async fn set_paid(conn: &Connection, id: &str, paid_on: Option<&str>) -> StoreResult<Bill> {
+    crate::log_info!("bills::set_paid: {id} -> {paid_on:?}");
+    let now = schema::now_iso();
+    let changed = conn
+        .execute(
+            "UPDATE bills SET paid_on = ?2, updated_at = ?3 WHERE id = ?1",
+            (id, paid_on, now.as_str()),
+        )
+        .await?;
+    if changed == 0 {
+        crate::log_warn!("bills::set_paid: no bill with id {id}");
+        return Err(StoreError::UnknownBill);
+    }
+    get(conn, id).await
 }

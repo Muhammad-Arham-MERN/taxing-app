@@ -11,6 +11,9 @@ export interface ClientDraft {
   cnic: string;
   name: string;
   company: string;
+  address: string;
+  contactPerson: string;
+  ntn: string;
   password: string;
   phones: string[];
   whatsapps: string[];
@@ -22,6 +25,9 @@ export function emptyClientDraft(): ClientDraft {
     cnic: "",
     name: "",
     company: "",
+    address: "",
+    contactPerson: "",
+    ntn: "",
     password: "",
     phones: [""],
     whatsapps: [""],
@@ -34,6 +40,9 @@ export function draftFromClient(client: Client): ClientDraft {
     cnic: client.cnic,
     name: client.name,
     company: client.company ?? "",
+    address: client.address ?? "",
+    contactPerson: client.contactPerson ?? "",
+    ntn: client.ntn ?? "",
     password: client.password ?? "",
     phones: client.phones.length > 0 ? [...client.phones] : [""],
     whatsapps: client.whatsapps.length > 0 ? [...client.whatsapps] : [""],
@@ -47,6 +56,9 @@ export function draftToClient(draft: ClientDraft): Client {
     cnic: draft.cnic.trim(),
     name: draft.name.trim(),
     company: draft.company.trim() || null,
+    address: draft.address.trim() || null,
+    contactPerson: draft.contactPerson.trim() || null,
+    ntn: draft.ntn.trim() || null,
     password: draft.password.trim() || null,
     phones: draft.phones,
     whatsapps: draft.whatsapps,
@@ -115,8 +127,13 @@ export interface ClientFieldsProps {
 
 /**
  * The client's own fields, shared by the Create tab and the edit dialog so the
- * two can never drift. The CNIC and name are required; company, password,
- * numbers, WhatsApps and emails are optional and repeatable (client request).
+ * two can never drift. The CNIC and name are required; company, the customer
+ * details, password, numbers, WhatsApps and emails are optional and repeatable
+ * (client request).
+ *
+ * The form is split into **two sections** — *Client Details* (who they are in the
+ * book) and *Customer Details* (the same fields a bill carries) — so the two
+ * are visually separated (client request).
  */
 export function ClientFields({
   draft,
@@ -129,76 +146,123 @@ export function ClientFields({
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-3">
-      <div className="grid gap-2">
-        <span className="text-sm leading-none font-medium">
-          CNIC / ID <span className="text-destructive">*</span>
+    <div className="grid gap-6">
+      <section className="grid gap-4" data-slot="client-details-section">
+        <span className="text-sm leading-none font-medium text-muted-foreground">
+          Client Details
         </span>
-        <Input
-          value={draft.cnic}
-          placeholder="e.g. 42101-1234567-1"
-          disabled={disabled || cnicReadOnly}
-          className={FIELD_INPUT_CLASS}
-          onChange={(event) => patch({ cnic: event.target.value })}
-        />
-      </div>
+        <div className="grid gap-5 lg:grid-cols-3">
+          <div className="grid gap-2">
+            <span className="text-sm leading-none font-medium">
+              CNIC / ID <span className="text-destructive">*</span>
+            </span>
+            <Input
+              value={draft.cnic}
+              placeholder="e.g. 42101-1234567-1"
+              disabled={disabled || cnicReadOnly}
+              className={FIELD_INPUT_CLASS}
+              onChange={(event) => patch({ cnic: event.target.value })}
+            />
+          </div>
 
-      <div className="grid gap-2">
-        <span className="text-sm leading-none font-medium">
-          Client Name <span className="text-destructive">*</span>
+          <div className="grid gap-2">
+            <span className="text-sm leading-none font-medium">
+              Client Name <span className="text-destructive">*</span>
+            </span>
+            <Input
+              value={draft.name}
+              placeholder="Who this client is"
+              disabled={disabled}
+              className={FIELD_INPUT_CLASS}
+              onChange={(event) => patch({ name: event.target.value })}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <span className="text-sm leading-none font-medium">Company</span>
+            <Input
+              value={draft.company}
+              placeholder="Optional"
+              disabled={disabled}
+              className={FIELD_INPUT_CLASS}
+              onChange={(event) => patch({ company: event.target.value })}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <span className="text-sm leading-none font-medium">Password</span>
+            <Input
+              value={draft.password}
+              placeholder="Optional"
+              disabled={disabled}
+              className={FIELD_INPUT_CLASS}
+              onChange={(event) => patch({ password: event.target.value })}
+            />
+          </div>
+
+          <ContactRows
+            label="Phone Numbers"
+            placeholder="+92 300 1234567"
+            values={draft.phones}
+            disabled={disabled}
+            onChange={(phones) => patch({ phones })}
+          />
+          <ContactRows
+            label="WhatsApp Numbers"
+            placeholder="+92 300 1234567"
+            values={draft.whatsapps}
+            disabled={disabled}
+            onChange={(whatsapps) => patch({ whatsapps })}
+          />
+          <ContactRows
+            label="Emails"
+            placeholder="name@example.com"
+            values={draft.emails}
+            disabled={disabled}
+            onChange={(emails) => patch({ emails })}
+          />
+        </div>
+      </section>
+
+      <section className="grid gap-4" data-slot="customer-details-section">
+        <span className="text-sm leading-none font-medium text-muted-foreground">
+          Customer Details
         </span>
-        <Input
-          value={draft.name}
-          placeholder="Who this client is"
-          disabled={disabled}
-          className={FIELD_INPUT_CLASS}
-          onChange={(event) => patch({ name: event.target.value })}
-        />
-      </div>
+        <div className="grid gap-5 lg:grid-cols-3">
+          <div className="grid gap-2">
+            <span className="text-sm leading-none font-medium">Customer Address</span>
+            <Input
+              value={draft.address}
+              placeholder="Optional"
+              disabled={disabled}
+              className={FIELD_INPUT_CLASS}
+              onChange={(event) => patch({ address: event.target.value })}
+            />
+          </div>
 
-      <div className="grid gap-2">
-        <span className="text-sm leading-none font-medium">Company</span>
-        <Input
-          value={draft.company}
-          placeholder="Optional"
-          disabled={disabled}
-          className={FIELD_INPUT_CLASS}
-          onChange={(event) => patch({ company: event.target.value })}
-        />
-      </div>
+          <div className="grid gap-2">
+            <span className="text-sm leading-none font-medium">Contact Person</span>
+            <Input
+              value={draft.contactPerson}
+              placeholder="Optional"
+              disabled={disabled}
+              className={FIELD_INPUT_CLASS}
+              onChange={(event) => patch({ contactPerson: event.target.value })}
+            />
+          </div>
 
-      <div className="grid gap-2">
-        <span className="text-sm leading-none font-medium">Password</span>
-        <Input
-          value={draft.password}
-          placeholder="Optional"
-          disabled={disabled}
-          className={FIELD_INPUT_CLASS}
-          onChange={(event) => patch({ password: event.target.value })}
-        />
-      </div>
-
-      <ContactRows
-        label="Phone Numbers"
-        placeholder="+92 300 1234567"
-        values={draft.phones}
-        disabled={disabled}
-        onChange={(phones) => patch({ phones })}
-      />
-      <ContactRows
-        label="WhatsApp Numbers"
-        placeholder="+92 300 1234567"
-        values={draft.whatsapps}
-        disabled={disabled}
-        onChange={(whatsapps) => patch({ whatsapps })}
-      />
-      <ContactRows
-        label="Emails"
-        placeholder="name@example.com"
-        values={draft.emails}
-        disabled={disabled}
-        onChange={(emails) => patch({ emails })}
-      />
+          <div className="grid gap-2">
+            <span className="text-sm leading-none font-medium">NTN Number</span>
+            <Input
+              value={draft.ntn}
+              placeholder="Optional"
+              disabled={disabled}
+              className={FIELD_INPUT_CLASS}
+              onChange={(event) => patch({ ntn: event.target.value })}
+            />
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

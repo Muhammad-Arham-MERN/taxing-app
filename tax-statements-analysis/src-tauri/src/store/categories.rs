@@ -108,7 +108,7 @@ pub async fn update(conn: &Connection, id: &str, name: &str, color: &str) -> Sto
 pub async fn delete(conn: &Connection, id: &str) -> StoreResult<()> {
     crate::log_info!("categories::delete: {id}");
 
-    let tx = conn.unchecked_transaction().await?;
+    let tx = super::begin_write(conn).await?;
     tx.execute(
         "UPDATE client_records SET category_id = NULL WHERE category_id = ?1",
         [id],

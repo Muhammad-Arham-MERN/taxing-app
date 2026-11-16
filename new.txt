@@ -1,0 +1,3 @@
+1. View bills "Bill status"
+2. Search button in view of statements
+3. bills create transaction error

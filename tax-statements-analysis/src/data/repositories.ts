@@ -249,6 +249,12 @@ export interface BillRepository {
   /** Delete a bill and its line items (FR-053, FR-054). */
   remove(id: string): Promise<void>;
 
+  /**
+   * Mark a bill **paid** on a date, or **unpaid** again with `null`, from the
+   * View Bills Status column (client request). Never touches anything else.
+   */
+  setPaid(id: string, paidOn: string | null): Promise<void>;
+
   /** Hand a rendered invoice PDF to the system's default PDF application (FR-034). */
   openInvoice(bytes: Uint8Array, fileName: string): Promise<void>;
 

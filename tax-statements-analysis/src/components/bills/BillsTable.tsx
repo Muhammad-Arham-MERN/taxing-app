@@ -7,11 +7,12 @@
  * delete it. Rows already carry their aggregates, so the list never loads the
  * line items themselves.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Download, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import { CustomerDialog } from "@/components/bills/CustomerDialog";
 import { EditBillDialog } from "@/components/bills/EditBillDialog";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -31,7 +33,8 @@ import {
 import { useRepositories } from "@/components/providers/DataProvider";
 import type { BillSummary, Customer } from "@/domain/types";
 import { billFileName, renderBillInvoice } from "@/lib/billInvoice";
-import { formatDate, formatPkr } from "@/lib/format";
+import { formatDate, formatPkr, parseIsoDate, toIsoDate, todayIso } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export const BILLS_PAGE_SIZE = 25;
 
@@ -40,6 +43,124 @@ export interface BillsTableProps {
   /** The remembered customers, so clicking a name can open their details. */
   customers: Customer[];
   onChanged: () => void;
+}
+
+/**
+ * The View Bills **Status** cell (client request): a red **Unpaid** / green
+ * **Paid · date** toggle. Clicking flips the status; hovering a paid bill opens a
+ * calendar so the paid date can be chosen. It is the only place a bill's status
+ * is set — never the create or edit forms.
+ */
+function BillStatusCell({
+  bill,
+  onSetPaid,
+}: {
+  bill: BillSummary;
+  onSetPaid: (id: string, paidOn: string | null) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<number | null>(null);
+  const paid = bill.paidOn !== null;
+
+  /**
+   * Open the calendar on hover, but keep it open while the pointer is over the
+   * button **or the calendar itself**, and only close a moment after it leaves
+   * both. Without this the calendar closes the instant the pointer leaves the
+   * button, so a date can never actually be clicked.
+   */
+  function hoverOpen() {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+    setOpen(true);
+  }
+
+  function hoverClose() {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+    }
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      setOpen(false);
+    }, 150);
+  }
+
+  async function set(paidOn: string | null) {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setOpen(false);
+    try {
+      await onSetPaid(bill.id, paidOn);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const button = (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      disabled={busy}
+      aria-pressed={paid}
+      aria-label={
+        paid ? `Mark bill ${bill.invoiceNo} unpaid` : `Mark bill ${bill.invoiceNo} paid`
+      }
+      onClick={() => void set(paid ? null : todayIso())}
+      className={cn(
+        "gap-1.5 rounded-full border font-medium transition-all duration-300 active:scale-95",
+        paid
+          ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
+          : "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/20",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "size-1.5 rounded-full transition-colors duration-300",
+          paid ? "bg-emerald-500" : "bg-destructive",
+        )}
+      />
+      {paid ? `Paid · ${formatDate(bill.paidOn ?? "")}` : "Unpaid"}
+    </Button>
+  );
+
+  if (!paid) {
+    return button;
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        {/* Opening is governed by hover, not click, so a click can still toggle
+            the status back to unpaid. */}
+        <span className="inline-flex" onMouseEnter={hoverOpen} onMouseLeave={hoverClose}>
+          {button}
+        </span>
+      </PopoverAnchor>
+      <PopoverContent
+        align="end"
+        className="w-auto p-0"
+        onMouseEnter={hoverOpen}
+        onMouseLeave={hoverClose}
+      >
+        <Calendar
+          mode="single"
+          autoFocus
+          selected={bill.paidOn ? parseIsoDate(bill.paidOn) : undefined}
+          onSelect={(date) => {
+            if (date) {
+              void set(toIsoDate(date));
+            }
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export function BillsTable({ bills, customers, onChanged }: BillsTableProps) {
@@ -112,6 +233,21 @@ export function BillsTable({ bills, customers, onChanged }: BillsTableProps) {
     }
   }
 
+  /** Flip a bill's paid status from the Status column (client request). */
+  async function setPaid(id: string, paidOn: string | null) {
+    setError(null);
+    try {
+      await repository.setPaid(id, paidOn);
+      onChanged();
+    } catch (paidError) {
+      setError(
+        paidError instanceof Error
+          ? paidError.message
+          : "That bill's status could not be changed.",
+      );
+    }
+  }
+
   if (bills.length === 0) {
     return (
       <p data-slot="bills-empty" className="text-sm text-muted-foreground">
@@ -129,6 +265,7 @@ export function BillsTable({ bills, customers, onChanged }: BillsTableProps) {
             <TableHead>Date</TableHead>
             <TableHead>Details</TableHead>
             <TableHead className="text-right">Amount</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -156,6 +293,9 @@ export function BillsTable({ bills, customers, onChanged }: BillsTableProps) {
                 </span>
               </TableCell>
               <TableCell className="text-right">{formatPkr(bill.total)}</TableCell>
+              <TableCell>
+                <BillStatusCell bill={bill} onSetPaid={setPaid} />
+              </TableCell>
               <TableCell className="text-right">
                 <div className="flex justify-end gap-1">
                   <Button

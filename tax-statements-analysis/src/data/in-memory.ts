@@ -402,6 +402,9 @@ export class InMemoryClientRepository implements ClientRepository {
       ? {
           ...existing,
           company: existing.company ?? input.company,
+          address: existing.address ?? input.address,
+          contactPerson: existing.contactPerson ?? input.contactPerson,
+          ntn: existing.ntn ?? input.ntn,
           password: existing.password ?? input.password,
           phones: unionContacts(existing.phones, input.phones),
           whatsapps: unionContacts(existing.whatsapps, input.whatsapps),
@@ -411,6 +414,9 @@ export class InMemoryClientRepository implements ClientRepository {
           cnic: input.cnic.trim(),
           name: input.name.trim(),
           company: input.company,
+          address: input.address,
+          contactPerson: input.contactPerson,
+          ntn: input.ntn,
           password: input.password,
           phones: unionContacts(input.phones),
           whatsapps: unionContacts(input.whatsapps),
@@ -430,6 +436,9 @@ export class InMemoryClientRepository implements ClientRepository {
       cnic: input.cnic.trim(),
       name: input.name.trim(),
       company: input.company,
+      address: input.address,
+      contactPerson: input.contactPerson,
+      ntn: input.ntn,
       password: input.password,
       phones: unionContacts(input.phones),
       whatsapps: unionContacts(input.whatsapps),
@@ -613,6 +622,8 @@ export class InMemoryBillRepository implements BillRepository {
       jazzcashNumbers: [...input.jazzcashNumbers],
       easypaisaNumbers: [...input.easypaisaNumbers],
       accountHolder: input.accountHolder,
+      meezanIban: input.meezanIban ?? null,
+      jsIban: input.jsIban ?? null,
       items: input.items.map((item, index) => ({
         id: billId(),
         position: index + 1,
@@ -621,6 +632,7 @@ export class InMemoryBillRepository implements BillRepository {
         crossed: item.crossed ?? null,
       })),
       total: input.items.reduce((sum, item) => sum + item.amount, 0),
+      paidOn: null,
       createdAt: new Date().toISOString(),
     };
 
@@ -657,6 +669,7 @@ export class InMemoryBillRepository implements BillRepository {
         customerName: bill.customer.name,
         details: bill.items.map((item) => item.details).join("; "),
         total: bill.total,
+        paidOn: bill.paidOn,
       }))
       .sort(byNewestBillFirst);
   }
@@ -695,6 +708,8 @@ export class InMemoryBillRepository implements BillRepository {
       jazzcashNumbers: [...update.jazzcashNumbers],
       easypaisaNumbers: [...update.easypaisaNumbers],
       accountHolder: update.accountHolder,
+      meezanIban: update.meezanIban ?? null,
+      jsIban: update.jsIban ?? null,
       // The invoice number is deliberately untouched, and the items are
       // renumbered from the order given (FR-048, FR-015).
       items: update.items.map((item, position) => ({
@@ -718,6 +733,14 @@ export class InMemoryBillRepository implements BillRepository {
       throw new UnknownBillError();
     }
     this.bills.splice(index, 1);
+  }
+
+  async setPaid(id: string, paidOn: string | null): Promise<void> {
+    const bill = this.bills.find((candidate) => candidate.id === id);
+    if (!bill) {
+      throw new UnknownBillError();
+    }
+    bill.paidOn = paidOn;
   }
 
   /** The fixture has no operating system to hand the invoice to. */

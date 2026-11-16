@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { BillFilters } from "@/components/bills/BillFilters";
 import { BillsTable } from "@/components/bills/BillsTable";
 import { useRepositories } from "@/components/providers/DataProvider";
-import type { BillFilter, BillSummary, Customer } from "@/domain/types";
+import type { BillFilter, BillSummary, Client, Customer } from "@/domain/types";
 
 const EMPTY_FILTER: BillFilter = { from: null, to: null, customer: null };
 
@@ -20,14 +20,38 @@ export interface ViewBillsTabProps {
 }
 
 export function ViewBillsTab({ refreshKey, onChanged }: ViewBillsTabProps) {
-  const { bills, customers: customerRepository } = useRepositories();
+  const {
+    bills,
+    clients: clientRepository,
+    customers: customerRepository,
+  } = useRepositories();
   const [filter, setFilter] = useState<BillFilter>(EMPTY_FILTER);
   const [rows, setRows] = useState<BillSummary[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
 
   const rangeInvalid = Boolean(
     filter.from && filter.to && filter.from > filter.to,
   );
+
+  useEffect(() => {
+    let active = true;
+    clientRepository
+      .list()
+      .then((list) => {
+        if (active) {
+          setClients(list);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setClients([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [clientRepository, refreshKey]);
 
   useEffect(() => {
     let active = true;
@@ -85,7 +109,12 @@ export function ViewBillsTab({ refreshKey, onChanged }: ViewBillsTabProps) {
 
       <div className="mt-5 flex flex-col gap-5">
         <div className="rounded-2xl border border-border/60 bg-surface/60 p-5">
-          <BillFilters filter={filter} customers={customers} onChange={setFilter} />
+          <BillFilters
+            filter={filter}
+            clients={clients}
+            customers={customers}
+            onChange={setFilter}
+          />
           {rangeInvalid ? (
             <p role="alert" className="mt-3 text-sm text-destructive">
               The From date must be on or before the To date.

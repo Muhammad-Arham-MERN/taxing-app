@@ -76,6 +76,10 @@ export const billFormSchema = z.object({
   jazzcashNumbers: walletNumbersSchema(WALLET_PLACEHOLDERS.jazzcash),
   easypaisaNumbers: walletNumbersSchema(WALLET_PLACEHOLDERS.easypaisa),
   accountHolder: z.string().trim().min(1, "Account holder name is required."),
+  // The two banks' editable invoice-footer values; blank falls back to the
+  // practice's own numbers when the invoice is rendered (client request).
+  meezanIban: optionalTextSchema,
+  jsIban: optionalTextSchema,
   items: z
     .array(billItemInputSchema)
     .min(1, "Add at least one item to the bill."),
@@ -100,6 +104,8 @@ export function toNewBill(values: BillFormOutput): NewBill {
     jazzcashNumbers: cleanNumbers(values.jazzcashNumbers),
     easypaisaNumbers: cleanNumbers(values.easypaisaNumbers),
     accountHolder: values.accountHolder,
+    meezanIban: values.meezanIban ?? null,
+    jsIban: values.jsIban ?? null,
     items: values.items.map((item) => ({
       details: item.details,
       amount: Number(item.amount),

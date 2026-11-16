@@ -58,6 +58,8 @@ function emptyBillForm(): BillFormInput {
     jazzcashNumbers: [{ number: "" }],
     easypaisaNumbers: [{ number: "" }],
     accountHolder: "",
+    meezanIban: "",
+    jsIban: "",
     items: [{ details: "", amount: "", crossed: "" }],
   };
 }
@@ -81,6 +83,8 @@ function toFormInput(bill: Bill): BillFormInput {
         ? bill.easypaisaNumbers.map((number) => ({ number }))
         : [{ number: "" }],
     accountHolder: bill.accountHolder,
+    meezanIban: bill.meezanIban ?? "",
+    jsIban: bill.jsIban ?? "",
     items: bill.items.map((item) => ({
       details: item.details,
       amount: String(item.amount),
@@ -323,6 +327,20 @@ export function EditBillDialog({
                     control={form.control}
                     name="accountHolder"
                     label="Account Holder Name"
+                    disabled={submitting}
+                  />
+                  <BillTextField
+                    control={form.control}
+                    name="meezanIban"
+                    label="Meezan Bank IBAN / Account"
+                    placeholder="Optional"
+                    disabled={submitting}
+                  />
+                  <BillTextField
+                    control={form.control}
+                    name="jsIban"
+                    label="JS Bank IBAN / Account"
+                    placeholder="Optional"
                     disabled={submitting}
                   />
                 </div>

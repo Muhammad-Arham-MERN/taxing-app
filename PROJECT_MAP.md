@@ -175,7 +175,7 @@ A full in-memory twin of every repository used by tests and by the browser build
 | File | Responsibility | Key exports |
 |---|---|---|
 | `CreateStatementForm.tsx` / `.test.tsx` | Create Statements form (type/nature/amount/remarks/file); blocked until valid; in-flight guarded. | `CreateStatementForm` |
-| `StatementsTable.tsx` / `.test.tsx` | TanStack-table list with file open/save-copy, pagination, edit dialog; remarks truncated. | `StatementsTable`, `STATEMENTS_PAGE_SIZE` |
+| `StatementsTable.tsx` / `.test.tsx` | TanStack-table list with file open/save-copy, pagination, edit dialog; remarks and nature truncated. | `StatementsTable`, `STATEMENTS_PAGE_SIZE` |
 | `EditStatementDialog.tsx` | Correct a stored statement; explicit keep/remove/replace file outcomes. | `EditStatementDialog` |
 | `SummaryFooter.tsx` | Total in-flow / out-flow / balance. | `SummaryFooter` |
 | `DateRangeFilter.tsx` | From/To filter with inline invalid-range message. | `createDefaultFilter()`, `DateRangeFilter` |

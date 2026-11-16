@@ -23,6 +23,8 @@ export type BillTextFieldName = Extract<
   | "ntn"
   | "customerPassword"
   | "accountHolder"
+  | "meezanIban"
+  | "jsIban"
 >;
 
 export interface BillTextFieldProps {

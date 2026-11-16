@@ -45,6 +45,7 @@ import {
   type BillFormOutput,
 } from "@/domain/billValidation";
 import {
+  BANK_DETAILS,
   DEFAULT_ACCOUNT_HOLDER,
   DEFAULT_ITEM_DETAILS,
   WALLET_PLACEHOLDERS,
@@ -70,6 +71,10 @@ function createEmptyForm(): BillFormInput {
     jazzcashNumbers: [{ number: WALLET_PLACEHOLDERS.jazzcash }],
     easypaisaNumbers: [{ number: WALLET_PLACEHOLDERS.easypaisa }],
     accountHolder: DEFAULT_ACCOUNT_HOLDER,
+    // The two banks' invoice-footer values default to the practice's own numbers
+    // and stay editable (client request).
+    meezanIban: BANK_DETAILS[0].value,
+    jsIban: BANK_DETAILS[1].value,
     // The first item's details are pre-written with the practice's memo, so it
     // does not have to be typed on every bill (client request).
     items: [{ details: DEFAULT_ITEM_DETAILS, amount: "", crossed: "" }],
@@ -85,6 +90,7 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
     bills,
     clients: clientRepository,
     customers: customerRepository,
+    clientRecords,
   } = useRepositories();
   const [knownClients, setKnownClients] = useState<Client[]>([]);
   const [knownCustomers, setKnownCustomers] = useState<Customer[]>([]);
@@ -188,8 +194,11 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
 
     const client = knownClients.find((entry) => entry.name.toLowerCase() === trimmed);
     if (client) {
+      set("customerAddress", client.address ?? "");
+      set("contactPerson", client.contactPerson ?? "");
       set("contactNumber", client.phones[0] ?? "");
       set("email", client.emails[0] ?? "");
+      set("ntn", client.ntn ?? "");
       set("customerPassword", client.password ?? "");
       return;
     }
@@ -218,6 +227,30 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
 
     try {
       const bill = await bills.create(toNewBill(values));
+
+      // A local copy of the bill is shared into the client's own records when the
+      // customer is one of the booked clients (client request). Matching is by
+      // name — the only link a bill has to a client — and a failure here must
+      // never make the already-created bill look failed.
+      const matchedClient = knownClients.find(
+        (entry) => entry.name.toLowerCase() === bill.customer.name.trim().toLowerCase(),
+      );
+      if (matchedClient) {
+        try {
+          await clientRecords.create({
+            cnic: matchedClient.cnic,
+            name: bill.items
+              .map((item) => item.details.trim())
+              .filter((details) => details.length > 0)
+              .join("; "),
+            date: bill.date,
+            remarks: formatPkr(bill.total),
+            categoryId: null,
+          });
+        } catch {
+          // Best-effort: the bill itself is already stored.
+        }
+      }
 
       // The invoice is rendered fresh from the stored bill, so what the
       // practitioner sees is exactly what was stored (FR-027, FR-034).
@@ -401,6 +434,20 @@ export function CreateBillForm({ onCreated }: CreateBillFormProps) {
                   control={form.control}
                   name="accountHolder"
                   label="Account Holder Name"
+                  disabled={submitting}
+                />
+                <BillTextField
+                  control={form.control}
+                  name="meezanIban"
+                  label="Meezan Bank IBAN / Account"
+                  placeholder="Optional"
+                  disabled={submitting}
+                />
+                <BillTextField
+                  control={form.control}
+                  name="jsIban"
+                  label="JS Bank IBAN / Account"
+                  placeholder="Optional"
                   disabled={submitting}
                 />
               </div>

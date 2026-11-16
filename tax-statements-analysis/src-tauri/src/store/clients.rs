@@ -22,6 +22,14 @@ pub struct Client {
     pub cnic: String,
     pub name: String,
     pub company: Option<String>,
+    /// The client's own Customer Details fields, mirroring a bill's (client
+    /// request). All optional.
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub contact_person: Option<String>,
+    #[serde(default)]
+    pub ntn: Option<String>,
     /// The client's own password, kept as plain text like a customer's, and
     /// carried onto a bill raised for them (client request).
     #[serde(default)]
@@ -102,16 +110,23 @@ pub async fn upsert_within(conn: &Connection, client: &Client) -> StoreResult<()
     let now = schema::now_iso();
 
     conn.execute(
-        "INSERT INTO clients (cnic, name, company, password, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+        "INSERT INTO clients
+             (cnic, name, company, address, contact_person, ntn, password, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
          ON CONFLICT(cnic) DO UPDATE SET
-             company    = COALESCE(clients.company, excluded.company),
-             password   = COALESCE(clients.password, excluded.password),
-             updated_at = excluded.updated_at",
+             company        = COALESCE(clients.company, excluded.company),
+             address        = COALESCE(clients.address, excluded.address),
+             contact_person = COALESCE(clients.contact_person, excluded.contact_person),
+             ntn            = COALESCE(clients.ntn, excluded.ntn),
+             password       = COALESCE(clients.password, excluded.password),
+             updated_at     = excluded.updated_at",
         Params::Positional(vec![
             Value::Text(cnic.clone()),
             Value::Text(client.name.trim().to_string()),
             optional_value(client.company.clone()),
+            optional_value(client.address.clone()),
+            optional_value(client.contact_person.clone()),
+            optional_value(client.ntn.clone()),
             optional_value(client.password.clone()),
             Value::Text(now),
         ]),
@@ -139,12 +154,16 @@ pub async fn update_within(conn: &Connection, client: &Client) -> StoreResult<()
     let changed = conn
         .execute(
             "UPDATE clients
-                SET name = ?2, company = ?3, password = ?4, updated_at = ?5
+                SET name = ?2, company = ?3, address = ?4, contact_person = ?5,
+                    ntn = ?6, password = ?7, updated_at = ?8
               WHERE cnic = ?1",
             Params::Positional(vec![
                 Value::Text(cnic.clone()),
                 Value::Text(client.name.trim().to_string()),
                 optional_value(client.company.clone()),
+                optional_value(client.address.clone()),
+                optional_value(client.contact_person.clone()),
+                optional_value(client.ntn.clone()),
                 optional_value(client.password.clone()),
                 Value::Text(now),
             ]),
@@ -169,7 +188,7 @@ pub async fn list(conn: &Connection) -> StoreResult<Vec<Client>> {
 
     let mut rows = conn
         .query(
-            "SELECT cnic, name, company, password
+            "SELECT cnic, name, company, address, contact_person, ntn, password
                FROM clients ORDER BY name COLLATE NOCASE ASC",
             (),
         )
@@ -181,7 +200,10 @@ pub async fn list(conn: &Connection) -> StoreResult<Vec<Client>> {
             cnic,
             name: text_at(&row, 1),
             company: optional_text_at(&row, 2),
-            password: optional_text_at(&row, 3),
+            address: optional_text_at(&row, 3),
+            contact_person: optional_text_at(&row, 4),
+            ntn: optional_text_at(&row, 5),
+            password: optional_text_at(&row, 6),
             phones: Vec::new(),
             whatsapps: Vec::new(),
             emails: Vec::new(),
@@ -218,7 +240,8 @@ pub async fn list(conn: &Connection) -> StoreResult<Vec<Client>> {
 pub async fn get(conn: &Connection, cnic: &str) -> StoreResult<Client> {
     let mut rows = conn
         .query(
-            "SELECT cnic, name, company, password FROM clients WHERE cnic = ?1",
+            "SELECT cnic, name, company, address, contact_person, ntn, password
+               FROM clients WHERE cnic = ?1",
             [cnic],
         )
         .await?;
@@ -228,7 +251,10 @@ pub async fn get(conn: &Connection, cnic: &str) -> StoreResult<Client> {
             cnic: text_at(&row, 0),
             name: text_at(&row, 1),
             company: optional_text_at(&row, 2),
-            password: optional_text_at(&row, 3),
+            address: optional_text_at(&row, 3),
+            contact_person: optional_text_at(&row, 4),
+            ntn: optional_text_at(&row, 5),
+            password: optional_text_at(&row, 6),
             phones: Vec::new(),
             whatsapps: Vec::new(),
             emails: Vec::new(),
@@ -237,6 +263,9 @@ pub async fn get(conn: &Connection, cnic: &str) -> StoreResult<Client> {
             cnic: cnic.to_string(),
             name: String::new(),
             company: None,
+            address: None,
+            contact_person: None,
+            ntn: None,
             password: None,
             phones: Vec::new(),
             whatsapps: Vec::new(),

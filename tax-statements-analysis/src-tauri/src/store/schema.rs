@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS bills (
     jazzcash       TEXT,
     easypaisa      TEXT,
     account_holder TEXT    NOT NULL,
+    meezan_iban    TEXT,
+    js_iban        TEXT,
+    paid_on        TEXT,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
 ) STRICT;
@@ -137,11 +140,14 @@ CREATE TABLE IF NOT EXISTS bill_wallets (
 /// primary key and collapses to one.
 const DDL_V6: &str = r#"
 CREATE TABLE IF NOT EXISTS clients (
-    cnic       TEXT COLLATE NOCASE PRIMARY KEY,
-    name       TEXT NOT NULL,
-    company    TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    cnic           TEXT COLLATE NOCASE PRIMARY KEY,
+    name           TEXT NOT NULL,
+    company        TEXT,
+    address        TEXT,
+    contact_person TEXT,
+    ntn            TEXT,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS client_contacts (
@@ -211,6 +217,8 @@ pub async fn apply(
     conn.execute_batch(DDL_V7).await?;
     ensure_client_password_column(conn).await?;
     ensure_bill_item_crossed_column(conn).await?;
+    ensure_bill_payment_columns(conn).await?;
+    ensure_client_detail_columns(conn).await?;
 
     conn.execute(
         &format!("PRAGMA application_id = {APPLICATION_ID}"),
@@ -371,6 +379,14 @@ pub async fn migrate(
     // `SCHEMA_VERSION`, so an older build opening a newer store ignores it rather
     // than refusing the file (see `DATABASE_MIGRATIONS.md`).
     ensure_bill_item_crossed_column(conn).await?;
+
+    // The bill's payment columns (`paid_on`, the two banks' IBANs) and the
+    // client's own detail columns (`address`, `contact_person`, `ntn`) are the
+    // same kind of additive, always-ensured change as the two above: older builds
+    // ignore the extra columns rather than refusing the file, so `SCHEMA_VERSION`
+    // is deliberately not bumped.
+    ensure_bill_payment_columns(conn).await?;
+    ensure_client_detail_columns(conn).await?;
 
     if version < super::SCHEMA_VERSION {
         conn.execute(
@@ -674,6 +690,63 @@ async fn ensure_bill_item_crossed_column(conn: &Connection) -> StoreResult<()> {
         conn.execute("ALTER TABLE bill_items ADD COLUMN crossed_minor INTEGER", ())
             .await?;
     }
+    Ok(())
+}
+
+/// Add one nullable column when it is not already present. SQLite has no `ADD
+/// COLUMN IF NOT EXISTS`, so the explicit check is what keeps every `ensure_*`
+/// step idempotent and safe to run on every open.
+async fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    add_sql: &str,
+) -> StoreResult<()> {
+    if !column_exists(conn, table, column).await? {
+        crate::log_info!("schema: adding the {table}.{column} column");
+        conn.execute(add_sql, ()).await?;
+    }
+    Ok(())
+}
+
+// وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+/// Add the bill's payment columns when they are not already present (client
+/// request): the **paid-on date** behind the View Bills status and the two
+/// banks' **editable IBANs** carried on the invoice.
+///
+/// Purely additive, so `SCHEMA_VERSION` is deliberately **not** bumped — an older
+/// build opening a newer store ignores the columns instead of refusing the file
+/// (see `DATABASE_MIGRATIONS.md`). It runs on **every** open, so a store of any
+/// earlier shape picks the columns up.
+async fn ensure_bill_payment_columns(conn: &Connection) -> StoreResult<()> {
+    ensure_column(conn, "bills", "paid_on", "ALTER TABLE bills ADD COLUMN paid_on TEXT").await?;
+    ensure_column(
+        conn,
+        "bills",
+        "meezan_iban",
+        "ALTER TABLE bills ADD COLUMN meezan_iban TEXT",
+    )
+    .await?;
+    ensure_column(conn, "bills", "js_iban", "ALTER TABLE bills ADD COLUMN js_iban TEXT").await?;
+    Ok(())
+}
+
+// وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+/// Add the client's own detail columns when they are not already present (client
+/// request): `address`, `contact_person` and `ntn`, mirroring the bill's Customer
+/// Details fields. Like [`ensure_bill_payment_columns`], it is additive and runs
+/// on every open.
+async fn ensure_client_detail_columns(conn: &Connection) -> StoreResult<()> {
+    ensure_column(conn, "clients", "address", "ALTER TABLE clients ADD COLUMN address TEXT")
+        .await?;
+    ensure_column(
+        conn,
+        "clients",
+        "contact_person",
+        "ALTER TABLE clients ADD COLUMN contact_person TEXT",
+    )
+    .await?;
+    ensure_column(conn, "clients", "ntn", "ALTER TABLE clients ADD COLUMN ntn TEXT").await?;
     Ok(())
 }
 

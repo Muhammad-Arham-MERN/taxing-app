@@ -269,6 +269,53 @@ async fn apply_delete_bill(
     Ok(())
 }
 
+// وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+/// Mark a bill paid on a date, or unpaid again with `None` (client request). Driven
+/// from the View Bills Status column and never from the create or edit forms.
+#[tauri::command]
+pub async fn set_bill_paid(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    paid_on: Option<String>,
+) -> Result<Bill, CommandError> {
+    crate::log_info!("-> set_bill_paid {id} paid_on={paid_on:?}");
+    let result = apply_set_bill_paid(app, state, id, paid_on).await;
+    crate::commands::log_outcome("set_bill_paid", &result);
+    result
+}
+
+async fn apply_set_bill_paid(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    paid_on: Option<String>,
+) -> Result<Bill, CommandError> {
+    // A date must be a real `YYYY-MM-DD`; a blank value means "unpaid".
+    if let Some(date) = paid_on.as_deref().map(str::trim) {
+        if !date.is_empty() && !is_iso_date(date) {
+            crate::log_warn!("set_bill_paid: the date is not ISO");
+            let mut fields = BTreeMap::new();
+            fields.insert("paidOn".to_string(), "Choose a valid date.".to_string());
+            return Err(CommandError::validation_for("bill", fields));
+        }
+    }
+
+    let saved = state
+        .with_connection(|session| async move {
+            let normalized = paid_on
+                .as_deref()
+                .map(str::trim)
+                .filter(|date| !date.is_empty());
+            bills::set_paid(&session.conn, &id, normalized).await
+        })
+        .await?;
+
+    crate::cloud::sync_state::mark_dirty(&app);
+    crate::log_info!("set_bill_paid: saved {} (paid_on={:?})", saved.id, saved.paid_on);
+    Ok(saved)
+}
+
 /// Every remembered customer, for the View Bills Customer filter (FR-065).
 #[tauri::command]
 pub async fn list_customers(state: State<'_, AppState>) -> Result<Vec<Customer>, CommandError> {

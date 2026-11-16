@@ -15,6 +15,7 @@ import { CreateClientForm } from "@/components/clients/CreateClientForm";
 import { ViewClientsTab } from "@/components/clients/ViewClientsTab";
 import { CreateStatementForm } from "@/components/statements/CreateStatementForm";
 import { createDefaultFilter, DateRangeFilter } from "@/components/statements/DateRangeFilter";
+import { StatementFilters } from "@/components/statements/StatementFilters";
 import { StatementsTable } from "@/components/statements/StatementsTable";
 import { SummaryFooter } from "@/components/statements/SummaryFooter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,6 +38,8 @@ function ViewTab({
   const { statements } = useRepositories();
   const [filter, setFilter] = useState<StatementFilter>(() => createDefaultFilter());
   const [rows, setRows] = useState<Statement[]>([]);
+  const [query, setQuery] = useState("");
+  const [natures, setNatures] = useState<string[]>([]);
 
   const rangeValid = isRangeValid(filter.from, filter.to);
 
@@ -68,7 +71,33 @@ function ViewTab({
     };
   }, [statements, filter.from, filter.to, refreshKey, rangeValid]);
 
-  const summary = useMemo(() => summarize(rows), [rows]);
+  // The search and the nature filter narrow the already date-filtered rows; the
+  // totals follow the filtered set, so the footer agrees with the table.
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows.filter((statement) => {
+      if (
+        natures.length > 0 &&
+        !natures.some(
+          (nature) => nature.toLowerCase() === statement.nature.toLowerCase(),
+        )
+      ) {
+        return false;
+      }
+      if (!needle) {
+        return true;
+      }
+      return (
+        statement.nature.toLowerCase().includes(needle) ||
+        (statement.remarks ?? "").toLowerCase().includes(needle) ||
+        (statement.fileName ?? "").toLowerCase().includes(needle) ||
+        // The amount is searchable by its plain value (e.g. "1500" or "1500.5").
+        String(statement.amount).toLowerCase().includes(needle)
+      );
+    });
+  }, [rows, query, natures]);
+
+  const summary = useMemo(() => summarize(visible), [visible]);
 
   return (
     <section data-slot="view-panel" className="rounded-4xl border border-border bg-card/60 p-6">
@@ -80,7 +109,16 @@ function ViewTab({
         </div>
 
         <div className="rounded-2xl border border-border/60 bg-surface/60 p-5">
-          <StatementsTable statements={rows} onChanged={onChanged} />
+          <StatementFilters
+            query={query}
+            onQueryChange={setQuery}
+            natures={natures}
+            onNaturesChange={setNatures}
+          />
+        </div>
+
+        <div className="rounded-2xl border border-border/60 bg-surface/60 p-5">
+          <StatementsTable statements={visible} onChanged={onChanged} />
         </div>
 
         <SummaryFooter summary={summary} />
@@ -210,6 +248,7 @@ function AppShell() {
         onOpenChange={setChooserOpen}
         storage={storage}
         hasCurrentStore={ready}
+        currentLocation={storageState?.location ?? null}
         onChanged={() => {
           void refreshStorage();
           bumpRefresh();
